@@ -41,7 +41,7 @@ export default function GenericCatalogPage({
   const mutCreate = useMutation({
     mutationFn: (d) => api.post(endpoint, buildPayload(d)),
     onSuccess: () => {
-      qc.invalidateQueries(queryKey);
+      qc.invalidateQueries({ queryKey });
       toast.success("Registro creado");
       closeModal();
     },
@@ -51,7 +51,7 @@ export default function GenericCatalogPage({
   const mutUpdate = useMutation({
     mutationFn: (d) => api.put(`${endpoint}/${selected.id}`, buildPayload(d)),
     onSuccess: () => {
-      qc.invalidateQueries(queryKey);
+      qc.invalidateQueries({ queryKey });
       toast.success("Registro actualizado");
       closeModal();
     },
@@ -61,7 +61,7 @@ export default function GenericCatalogPage({
   const mutDelete = useMutation({
     mutationFn: () => api.delete(`${endpoint}/${deleting.id}`),
     onSuccess: () => {
-      qc.invalidateQueries(queryKey);
+      qc.invalidateQueries({ queryKey });
       toast.success("Registro eliminado");
       setDeleting(null);
     },

@@ -1,12 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
-import RegistrosPage from './pages/RegistrosPage';
+import RegistrosPage from './pages/RegistrosPageV2';
 import RegistroFormPage from './pages/RegistroFormPage';
-import Modulo2Page from './pages/Modulo2Page';
+import Modulo2Page from './pages/Modulo2PageV2';
 import CategoriasPage from './pages/catalogs/CategoriasPage';
 import AlmacenesPage from './pages/catalogs/AlmacenesPage';
 import SkusPage from './pages/catalogs/SkusPage';
@@ -15,6 +16,7 @@ import IndicadoresPage from './pages/catalogs/IndicadoresPage';
 import TiposMercaderiaPage from './pages/catalogs/TiposMercaderiaPage';
 import UsuariosPage from './pages/UsuariosPage';
 import EmpresasPage from './pages/EmpresasPage';
+import HistorialPage from './pages/HistorialPageV2';
 import NotFound from './pages/NotFound';
 
 function ProtectedRoute({ children, roles }) {
@@ -35,13 +37,26 @@ function AppRoutes() {
 
         {/* Módulo 1 */}
         <Route path="registros" element={<RegistrosPage />} />
-        <Route path="registros/nuevo" element={<RegistroFormPage />} />
-        <Route path="registros/:id/editar" element={<RegistroFormPage />} />
+        <Route path="registros/nuevo" element={
+          <ProtectedRoute roles={['superadmin','admin','almacenero']}>
+            <RegistroFormPage />
+          </ProtectedRoute>
+        } />
+        <Route path="registros/:id/editar" element={
+          <ProtectedRoute roles={['superadmin','admin']}>
+            <RegistroFormPage />
+          </ProtectedRoute>
+        } />
 
         {/* Módulo 2 */}
         <Route path="transito-aprobaciones" element={
-          <ProtectedRoute roles={['superadmin','admin','supervisor']}>
+          <ProtectedRoute roles={['superadmin','admin','supervisor','almacenero']}>
             <Modulo2Page />
+          </ProtectedRoute>
+        } />
+        <Route path="historial" element={
+          <ProtectedRoute roles={['superadmin','admin','supervisor']}>
+            <HistorialPage />
           </ProtectedRoute>
         } />
 
@@ -66,18 +81,20 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-        <ToastContainer
-          position="top-right"
-          autoClose={3500}
-          hideProgressBar={false}
-          newestOnTop
-          closeOnClick
-          pauseOnHover
-          theme="light"
-        />
-      </BrowserRouter>
+      <AppErrorBoundary>
+        <BrowserRouter>
+          <AppRoutes />
+          <ToastContainer
+            position="top-right"
+            autoClose={3500}
+            hideProgressBar={false}
+            newestOnTop
+            closeOnClick
+            pauseOnHover
+            theme="light"
+          />
+        </BrowserRouter>
+      </AppErrorBoundary>
     </AuthProvider>
   );
 }

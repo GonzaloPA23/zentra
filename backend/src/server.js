@@ -42,6 +42,7 @@ app.use('/api/usuarios',   require('./routes/usuarios'));
 app.use('/api/catalogos',  require('./routes/catalogos'));
 app.use('/api/registros',  require('./routes/registros'));
 app.use('/api/dashboard',  require('./routes/dashboard'));
+app.use('/api/auditoria',  require('./routes/auditoria'));
 
 // ── 404 ────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' }));

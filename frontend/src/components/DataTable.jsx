@@ -5,8 +5,9 @@ export default function DataTable({ columns, data = [], loading, searchPlacehold
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const PER_PAGE = 15;
+  const safeData = Array.isArray(data) ? data : [];
 
-  const filtered = data.filter((row) =>
+  const filtered = safeData.filter((row) =>
     columns.some((col) => {
       if (!col.searchable) return false;
       const val = col.accessor ? row[col.accessor] : '';

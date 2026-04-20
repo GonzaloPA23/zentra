@@ -196,7 +196,9 @@ export default function Modulo2Page() {
   const mutEstado = useMutation({
     mutationFn: ({ id, estado }) => api.patch(`/registros/${id}/estado`, { estado }),
     onSuccess: (_, { estado }) => {
-      qc.invalidateQueries(['registros']);
+      qc.invalidateQueries({ queryKey: ['registros'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['auditoria-registros'] });
       const msgs = { aprobado: '✅ Registro aprobado', rechazado: '❌ Registro rechazado', en_transito: '🚚 Marcado como En Camino' };
       toast.success(msgs[estado] || 'Estado actualizado');
     },

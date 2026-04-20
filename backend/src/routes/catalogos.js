@@ -209,24 +209,50 @@ router.delete('/indicadores/:id', requireRol('superadmin','admin'), async (req, 
 router.get('/personal-receptor', async (req, res) => {
   try {
     const eid = resolveEmpresaId(req);
-    let q = 'SELECT * FROM personal_receptor WHERE activo=1';
+    const { almacen_id, categoria_id, ciudad_id } = req.query;
+    let q = `SELECT pr.*,
+                a.nombre AS almacen_nombre,
+                a.ciudad_id,
+                ci.nombre AS ciudad_nombre,
+                ca.nombre AS categoria_nombre
+             FROM personal_receptor pr
+             LEFT JOIN almacenes a ON a.id = pr.almacen_id
+             LEFT JOIN ciudades ci ON ci.id = a.ciudad_id
+             LEFT JOIN categorias ca ON ca.id = pr.categoria_id
+             WHERE pr.activo=1`;
     const p = [];
-    if (eid) { q += ' AND empresa_id=?'; p.push(eid); }
-    q += ' ORDER BY nombre';
+    if (eid) { q += ' AND pr.empresa_id=?'; p.push(eid); }
+    if (almacen_id) { q += ' AND pr.almacen_id=?'; p.push(almacen_id); }
+    if (categoria_id) { q += ' AND pr.categoria_id=?'; p.push(categoria_id); }
+    if (ciudad_id) { q += ' AND a.ciudad_id=?'; p.push(ciudad_id); }
+    q += ' ORDER BY pr.nombre';
     const [rows] = await pool.query(q, p);
     res.json({ ok: true, datos: rows });
   } catch { res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
 });
-router.post('/personal-receptor', requireRol('superadmin','admin'), [body('nombre').trim().notEmpty()], validate, async (req, res) => {
+router.post('/personal-receptor', requireRol('superadmin','admin'), [
+  body('nombre').trim().notEmpty(),
+  body('almacen_id').isInt({ min: 1 }).withMessage('Almacen requerido'),
+  body('categoria_id').isInt({ min: 1 }).withMessage('Categoria requerida'),
+], validate, async (req, res) => {
   const eid = resolveEmpresaId(req) || req.empresa_id;
+  const { nombre, cargo, almacen_id, categoria_id } = req.body;
   const [r] = await pool.query(
-    'INSERT INTO personal_receptor (empresa_id, nombre, cargo) VALUES (?,?,?)',
-    [eid, req.body.nombre, req.body.cargo || null]);
+    'INSERT INTO personal_receptor (empresa_id, nombre, cargo, almacen_id, categoria_id) VALUES (?,?,?,?,?)',
+    [eid, nombre, cargo || null, almacen_id, categoria_id]);
   res.status(201).json({ ok: true, id: r.insertId });
 });
-router.put('/personal-receptor/:id', requireRol('superadmin','admin'), [param('id').isInt()], validate, async (req, res) => {
-  await pool.query('UPDATE personal_receptor SET nombre=?, cargo=?, activo=? WHERE id=?',
-    [req.body.nombre, req.body.cargo || null, req.body.activo ?? 1, req.params.id]);
+router.put('/personal-receptor/:id', requireRol('superadmin','admin'), [
+  param('id').isInt(),
+  body('nombre').trim().notEmpty(),
+  body('almacen_id').isInt({ min: 1 }).withMessage('Almacen requerido'),
+  body('categoria_id').isInt({ min: 1 }).withMessage('Categoria requerida'),
+], validate, async (req, res) => {
+  const { nombre, cargo, almacen_id, categoria_id, activo } = req.body;
+  await pool.query(
+    'UPDATE personal_receptor SET nombre=?, cargo=?, almacen_id=?, categoria_id=?, activo=? WHERE id=?',
+    [nombre, cargo || null, almacen_id, categoria_id, activo ?? 1, req.params.id]
+  );
   res.json({ ok: true });
 });
 router.delete('/personal-receptor/:id', requireRol('superadmin','admin'), async (req, res) => {

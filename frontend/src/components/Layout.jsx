@@ -23,10 +23,16 @@ const NAV = [
     roles: ['superadmin','admin','supervisor','almacenero'],
   },
   {
+    label: 'Historial',
+    to: '/historial',
+    icon: Bell,
+    roles: ['superadmin','admin','supervisor'],
+  },
+  {
     label: 'Módulo 2: Tránsito',
     to: '/transito-aprobaciones',
     icon: Truck,
-    roles: ['superadmin','admin','supervisor'],
+    roles: ['superadmin','admin','supervisor','almacenero'],
   },
   {
     label: 'Catálogos',

@@ -8,6 +8,7 @@ import {
 import { ClipboardList, CheckCircle, Clock, AlertTriangle, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { getSafeDate } from '../utils/date';
 
 const COLORS = ['#4361ee','#7209b7','#3a0ca3','#f72585','#4cc9f0','#4895ef','#560bad'];
 
@@ -27,7 +28,10 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
 }
 
 function AlertRow({ item, tipo }) {
-  const dias = Math.ceil((new Date(item.fecha_vencimiento) - new Date()) / 86400000);
+  const fechaVencimiento = getSafeDate(item.fecha_vencimiento);
+  const dias = fechaVencimiento
+    ? Math.ceil((fechaVencimiento - new Date()) / 86400000)
+    : null;
   return (
     <div className={`flex items-center gap-3 p-3 rounded-lg text-sm ${tipo === 'vencido' ? 'bg-red-50' : 'bg-yellow-50'}`}>
       <AlertTriangle size={15} className={tipo === 'vencido' ? 'text-red-500' : 'text-yellow-500'} />
@@ -36,7 +40,7 @@ function AlertRow({ item, tipo }) {
         <p className="text-xs text-gray-500">{item.almacen} · Cant: {item.cantidad}</p>
       </div>
       <span className={`text-xs font-semibold ${tipo === 'vencido' ? 'text-red-600' : 'text-yellow-600'}`}>
-        {tipo === 'vencido' ? 'VENCIDO' : `${dias}d`}
+        {tipo === 'vencido' ? 'VENCIDO' : dias === null ? '-' : `${dias}d`}
       </span>
     </div>
   );
@@ -50,11 +54,18 @@ export default function DashboardPage() {
   });
 
   const t = data?.totales ?? {};
-  const porMes = (data?.por_mes ?? []).map(m => ({
+  const porMes = (Array.isArray(data?.por_mes) ? data.por_mes : []).map(m => ({
     mes: m.mes,
     total: parseInt(m.total),
     cantidad: parseFloat(m.cantidad),
   }));
+  const porCategoria = Array.isArray(data?.por_categoria) ? data.por_categoria : [];
+  const alertas = {
+    vencidos: Array.isArray(data?.alertas?.vencidos) ? data.alertas.vencidos : [],
+    vencimientos_proximos: Array.isArray(data?.alertas?.vencimientos_proximos)
+      ? data.alertas.vencimientos_proximos
+      : [],
+  };
 
   return (
     <div className="space-y-6">
@@ -103,7 +114,7 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie
-                  data={data?.por_categoria ?? []}
+                  data={porCategoria}
                   dataKey="total"
                   nameKey="nombre"
                   cx="50%"
@@ -112,7 +123,7 @@ export default function DashboardPage() {
                   outerRadius={80}
                   paddingAngle={3}
                 >
-                  {(data?.por_categoria ?? []).map((_, i) => (
+                  {porCategoria.map((_, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
@@ -125,27 +136,27 @@ export default function DashboardPage() {
       </div>
 
       {/* Alertas */}
-      {(data?.alertas?.vencidos?.length > 0 || data?.alertas?.vencimientos_proximos?.length > 0) && (
+      {(alertas.vencidos.length > 0 || alertas.vencimientos_proximos.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {data.alertas.vencidos?.length > 0 && (
+          {alertas.vencidos.length > 0 && (
             <div className="card border-red-200">
               <h3 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
-                <AlertTriangle size={16} /> Productos Vencidos ({data.alertas.vencidos.length})
+                <AlertTriangle size={16} /> Productos Vencidos ({alertas.vencidos.length})
               </h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {data.alertas.vencidos.map((item) => (
+                {alertas.vencidos.map((item) => (
                   <AlertRow key={item.id} item={item} tipo="vencido" />
                 ))}
               </div>
             </div>
           )}
-          {data.alertas.vencimientos_proximos?.length > 0 && (
+          {alertas.vencimientos_proximos.length > 0 && (
             <div className="card border-yellow-200">
               <h3 className="font-semibold text-yellow-700 mb-3 flex items-center gap-2">
                 <AlertTriangle size={16} /> Próximos a Vencer ({data.alertas.vencimientos_proximos.length})
               </h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {data.alertas.vencimientos_proximos.map((item) => (
+                {alertas.vencimientos_proximos.map((item) => (
                   <AlertRow key={item.id} item={item} tipo="proximo" />
                 ))}
               </div>

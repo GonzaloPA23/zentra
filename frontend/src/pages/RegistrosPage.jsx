@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import api, { getMensajeError } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
-import { Plus, Download, Eye, Pencil, Trash2, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Download, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { format } from 'date-fns';
 
@@ -27,15 +27,14 @@ export default function RegistrosPage() {
     },
   });
 
-  const mutEstado = useMutation({
-    mutationFn: ({ id, estado }) => api.patch(`/registros/${id}/estado`, { estado }),
-    onSuccess: () => { qc.invalidateQueries(['registros']); toast.success('Estado actualizado'); },
-    onError: (e) => toast.error(getMensajeError(e)),
-  });
-
   const mutDel = useMutation({
     mutationFn: (id) => api.delete(`/registros/${id}`),
-    onSuccess: () => { qc.invalidateQueries(['registros']); toast.success('Registro eliminado'); setDeleting(null); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['registros'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Registro eliminado');
+      setDeleting(null);
+    },
     onError: (e) => { toast.error(getMensajeError(e)); setDeleting(null); },
   });
 
@@ -146,18 +145,6 @@ export default function RegistrosPage() {
                 <td className="text-xs text-gray-500">{r.registrado_por}</td>
                 <td>
                   <div className="flex items-center gap-1">
-                    {hasRole('superadmin','admin','supervisor') && r.estado === 'pendiente' && (
-                      <>
-                        <button title="Aprobar" className="btn-icon text-green-600 hover:bg-green-50"
-                          onClick={() => mutEstado.mutate({ id: r.id, estado: 'aprobado' })}>
-                          <CheckCircle size={15} />
-                        </button>
-                        <button title="Rechazar" className="btn-icon text-red-500 hover:bg-red-50"
-                          onClick={() => mutEstado.mutate({ id: r.id, estado: 'rechazado' })}>
-                          <XCircle size={15} />
-                        </button>
-                      </>
-                    )}
                     {hasRole('superadmin','admin','supervisor') && (
                       <button title="Editar" className="btn-icon text-blue-500"
                         onClick={() => navigate(`/registros/${r.id}/editar`)}>

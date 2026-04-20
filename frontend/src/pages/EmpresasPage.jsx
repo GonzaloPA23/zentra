@@ -7,6 +7,7 @@ import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { Plus, Pencil, Trash2, Loader2, Building2 } from 'lucide-react';
+import { toSafeLocaleDateString } from '../utils/date';
 
 function EmpresaForm({ defaults, onSubmit, onCancel, loading, isEdit }) {
   const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: defaults || {} });

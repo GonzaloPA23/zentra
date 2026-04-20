@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import api, { getMensajeError } from '../utils/api';
 import { ArrowLeft, Save, Loader2, Upload, Plus, X } from 'lucide-react';
+import { toSafeDateInputValue, toSafeLocaleDateString } from '../utils/date';
 
 const ACCION_TIPOS = {
   'MERMA':                ['ENTRADA','SALIDA','DEGUSTACIÓN','CANJES','CRUCERISMO','MERCADERISMO','ACTIVOS'],
@@ -98,8 +99,11 @@ export default function RegistroFormPage() {
   const [fotoFile, setFotoFile]   = useState(null);
   const [modalLote, setModalLote] = useState(false);
   const [lotesLocales, setLotesLocales] = useState([]); // lotes recién creados en esta sesión
+  const [registroEstado, setRegistroEstado] = useState(null);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
+  const isHydratingRef = useRef(false);
+
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
     defaultValues: {
       fecha: new Date().toISOString().split('T')[0],
       zona: 'LIMA',
@@ -109,22 +113,48 @@ export default function RegistroFormPage() {
     },
   });
 
-  const zona        = watch('zona');
-  const accion      = watch('accion');
-  const catId       = watch('categoria_id');
-  const tipoMercId  = watch('tipo_mercaderia_id');
-  const skuId       = watch('sku_id');
-  const loteId      = watch('lote_id');
-  const indicadorId = watch('indicador_id');
+  const zona             = watch('zona');
+  const ciudadId         = watch('ciudad_id');
+  const accion           = watch('accion');
+  const almacenOrigenId  = watch('almacen_origen_id');
+  const catId            = watch('categoria_id');
+  const tipoMercId       = watch('tipo_mercaderia_id');
+  const skuId            = watch('sku_id');
+  const loteId           = watch('lote_id');
+  const indicadorId      = watch('indicador_id');
+  const personalReceptorId = watch('personal_receptor_id');
 
   const tiposAccionDisponibles = ACCION_TIPOS[accion] || [];
+  const filtrosPersonalCompletos = !!almacenOrigenId && !!catId;
 
   // Catálogos
   const { data: ciudades   = [] } = useQuery({ queryKey: ['ciudades'],   queryFn: () => api.get('/catalogos/ciudades').then(r => r.data.datos) });
   const { data: almacenes  = [] } = useQuery({ queryKey: ['almacenes'],  queryFn: () => api.get('/catalogos/almacenes').then(r => r.data.datos) });
   const { data: categorias = [] } = useQuery({ queryKey: ['categorias'], queryFn: () => api.get('/catalogos/categorias').then(r => r.data.datos) });
   const { data: indicadores= [] } = useQuery({ queryKey: ['indicadores'],queryFn: () => api.get('/catalogos/indicadores').then(r => r.data.datos) });
-  const { data: personal   = [] } = useQuery({ queryKey: ['personal'],   queryFn: () => api.get('/catalogos/personal-receptor').then(r => r.data.datos) });
+  const {
+    data: personal = [],
+    isFetching: cargandoPersonal,
+  } = useQuery({
+    queryKey: ['personal-receptor', ciudadId || '', almacenOrigenId || '', catId || ''],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (ciudadId) params.append('ciudad_id', ciudadId);
+      if (almacenOrigenId) params.append('almacen_id', almacenOrigenId);
+      if (catId) params.append('categoria_id', catId);
+      return api.get(`/catalogos/personal-receptor?${params.toString()}`).then(r => r.data.datos);
+    },
+    enabled: filtrosPersonalCompletos,
+  });
+
+  const ciudadSeleccionada = useMemo(
+    () => ciudades.find((c) => String(c.id) === String(ciudadId)),
+    [ciudades, ciudadId]
+  );
+  const almacenesOrigenDisponibles = useMemo(
+    () => almacenes.filter((a) => String(a.ciudad_id) === String(ciudadId)),
+    [almacenes, ciudadId]
+  );
 
   const { data: tiposMerc = [] } = useQuery({
     queryKey: ['tipos-merc', catId],
@@ -157,35 +187,120 @@ export default function RegistroFormPage() {
   const skuTieneVenc    = !!skuSeleccionado?.tiene_vencimiento;
   const indicadorNombre = indicadores.find(i => String(i.id) === String(indicadorId))?.nombre || '';
   const esTGMolitalia   = indicadorNombre === INDICADOR_TG_MOLITALIA;
+  const zonaSugerida    = ciudadSeleccionada?.nombre === 'LIMA' ? 'LIMA' : ciudadSeleccionada ? 'PROVINCIA' : zona;
+  const isApprovedRecord = isEditing && registroEstado === 'aprobado';
+  const isReadOnly = isApprovedRecord;
 
   // Auto-completar fecha desde lote
   useEffect(() => {
     const lote = lotes.find(l => String(l.id) === String(loteId));
     if (lote?.fecha_vencimiento) {
-      setValue('fecha_vencimiento', lote.fecha_vencimiento.split('T')[0]);
+      setValue('fecha_vencimiento', toSafeDateInputValue(lote.fecha_vencimiento));
     } else if (loteId) {
       setValue('fecha_vencimiento', '');
     }
-  }, [loteId]);
+  }, [loteId, lotes, setValue]);
 
   // Limpiar cascadas
-  useEffect(() => { setValue('tipo_mercaderia_id',''); setValue('sku_id',''); setValue('lote_id',''); setValue('fecha_vencimiento',''); setLotesLocales([]); }, [catId]);
-  useEffect(() => { setValue('sku_id',''); setValue('lote_id',''); setValue('fecha_vencimiento',''); setLotesLocales([]); }, [tipoMercId]);
-  useEffect(() => { setValue('lote_id',''); setValue('fecha_vencimiento',''); setLotesLocales([]); }, [skuId]);
-  useEffect(() => { setValue('tipo_accion',''); }, [accion]);
-  useEffect(() => { setValue('sku_id',''); setValue('lote_id',''); setLotesLocales([]); }, [zona]);
+  useEffect(() => {
+    if (isHydratingRef.current) return;
+    setValue('tipo_mercaderia_id','');
+    setValue('sku_id','');
+    setValue('lote_id','');
+    setValue('fecha_vencimiento','');
+    setLotesLocales([]);
+  }, [catId, setValue]);
+  useEffect(() => {
+    if (isHydratingRef.current) return;
+    setValue('sku_id','');
+    setValue('lote_id','');
+    setValue('fecha_vencimiento','');
+    setLotesLocales([]);
+  }, [tipoMercId, setValue]);
+  useEffect(() => {
+    if (isHydratingRef.current) return;
+    setValue('lote_id','');
+    setValue('fecha_vencimiento','');
+    setLotesLocales([]);
+  }, [skuId, setValue]);
+  useEffect(() => {
+    if (isHydratingRef.current) return;
+    setValue('tipo_accion','');
+  }, [accion, setValue]);
+  useEffect(() => {
+    if (isHydratingRef.current) return;
+    setValue('sku_id','');
+    setValue('lote_id','');
+    setLotesLocales([]);
+  }, [zona, setValue]);
+  useEffect(() => {
+    if (!ciudadId) {
+      if (!isHydratingRef.current) setValue('almacen_origen_id', '');
+      return;
+    }
+    if (almacenOrigenId && !almacenesOrigenDisponibles.some(a => String(a.id) === String(almacenOrigenId))) {
+      setValue('almacen_origen_id', '');
+    }
+  }, [ciudadId, almacenOrigenId, almacenesOrigenDisponibles, setValue]);
+  useEffect(() => {
+    if (!ciudadSeleccionada) return;
+    if (zona !== zonaSugerida) {
+      setValue('zona', zonaSugerida);
+    }
+  }, [ciudadSeleccionada, zona, zonaSugerida, setValue]);
+  useEffect(() => {
+    if (!personalReceptorId) return;
+    if (isHydratingRef.current) return;
+    if (!filtrosPersonalCompletos) {
+      setValue('personal_receptor_id', '');
+      return;
+    }
+    if (cargandoPersonal) return;
+    if (!personal.some(p => String(p.id) === String(personalReceptorId))) {
+      setValue('personal_receptor_id', '');
+    }
+  }, [personalReceptorId, filtrosPersonalCompletos, cargandoPersonal, personal, setValue]);
 
   // Cargar datos al editar
   useEffect(() => {
-    if (!isEditing) return;
+    if (!isEditing || !ciudades.length) return;
+    isHydratingRef.current = true;
     api.get(`/registros/${id}`).then(r => {
       const d = r.data.datos;
-      Object.entries(d).forEach(([k, v]) => {
-        if (v !== null && v !== undefined)
-          setValue(k, (k === 'fecha' || k === 'fecha_vencimiento') ? String(v).split('T')[0] : String(v));
+      setRegistroEstado(d.estado || null);
+      const ciudad = ciudades.find(c => String(c.id) === String(d.ciudad_id));
+      const zonaInicial = ciudad?.nombre === 'LIMA' ? 'LIMA' : ciudad ? 'PROVINCIA' : 'LIMA';
+
+      reset({
+        fecha: toSafeDateInputValue(d.fecha, new Date().toISOString().split('T')[0]),
+        ciudad_id: d.ciudad_id ? String(d.ciudad_id) : '',
+        zona: zonaInicial,
+        almacen_origen_id: d.almacen_origen_id ? String(d.almacen_origen_id) : '',
+        almacen_destino_id: d.almacen_destino_id ? String(d.almacen_destino_id) : '',
+        categoria_id: d.categoria_id ? String(d.categoria_id) : '',
+        accion: d.accion || '',
+        tipo_accion: d.tipo_accion || '',
+        personal_receptor_id: d.personal_receptor_id ? String(d.personal_receptor_id) : '',
+        indicador_id: d.indicador_id ? String(d.indicador_id) : '',
+        tipo_mercaderia_id: d.tipo_mercaderia_id ? String(d.tipo_mercaderia_id) : '',
+        sku_id: d.sku_id ? String(d.sku_id) : '',
+        lote_id: d.lote_id ? String(d.lote_id) : '',
+        fecha_vencimiento: toSafeDateInputValue(d.fecha_vencimiento),
+        cantidad: d.cantidad ? String(d.cantidad) : '',
+        nro_guia: d.nro_guia || '',
+        observaciones: d.observaciones || '',
       });
-    }).catch(() => { toast.error('No se pudo cargar el registro'); navigate('/registros'); });
-  }, [id, isEditing]);
+    }).catch(() => {
+      toast.error('No se pudo cargar el registro');
+      navigate('/registros');
+    }).finally(() => {
+      setTimeout(() => { isHydratingRef.current = false; }, 0);
+    });
+  }, [id, isEditing, ciudades, navigate, reset]);
+
+  useEffect(() => {
+    if (!isEditing) setRegistroEstado(null);
+  }, [isEditing]);
 
   const handleLoteCreado = async (nuevoLote) => {
     setModalLote(false);
@@ -193,11 +308,14 @@ export default function RegistroFormPage() {
     await refetchLotes();
     setTimeout(() => {
       setValue('lote_id', String(nuevoLote.id));
-      if (nuevoLote.fecha_vencimiento) setValue('fecha_vencimiento', nuevoLote.fecha_vencimiento);
+      if (nuevoLote.fecha_vencimiento) {
+        setValue('fecha_vencimiento', toSafeDateInputValue(nuevoLote.fecha_vencimiento));
+      }
     }, 200);
   };
 
   const onSubmit = async (data) => {
+    if (isReadOnly) return;
     setLoading(true);
     try {
       const formData = new FormData();
@@ -236,12 +354,21 @@ export default function RegistroFormPage() {
           <ArrowLeft size={14} /> Volver
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{isEditing ? 'Editar Registro' : 'Nuevo Registro'}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isEditing ? (isReadOnly ? 'Ver Registro Aprobado' : 'Editar Registro') : 'Nuevo Registro'}
+          </h1>
           <p className="text-sm text-gray-500">Módulo 1 · Registros de almacén</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {isReadOnly && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Este registro ya fue aprobado. Puedes revisarlo, pero sus campos están bloqueados y no se puede guardar cambios.
+          </div>
+        )}
+
+        <fieldset disabled={isReadOnly} className="space-y-6">
 
         {/* Sección 1 */}
         <div className="card">
@@ -265,10 +392,17 @@ export default function RegistroFormPage() {
               </select>
             </F>
             <F label="Almacén Inicial (Origen)" required name="almacen_origen_id">
-              <select className={`input ${errors.almacen_origen_id ? 'input-error' : ''}`}
+              <select className={`input ${errors.almacen_origen_id ? 'input-error' : ''} ${!ciudadId ? 'opacity-50' : ''}`}
+                disabled={!ciudadId}
                 {...register('almacen_origen_id', { required: 'Requerido' })}>
-                <option value="">Seleccionar almacén...</option>
-                {almacenes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                <option value="">
+                  {!ciudadId
+                    ? 'Selecciona ciudad primero'
+                    : almacenesOrigenDisponibles.length === 0
+                      ? 'Sin almacenes para esta ciudad'
+                      : 'Seleccionar almacén...'}
+                </option>
+                {almacenesOrigenDisponibles.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
               </select>
             </F>
             <F label="Almacén Destino" name="almacen_destino_id">
@@ -307,8 +441,24 @@ export default function RegistroFormPage() {
               </select>
             </F>
             <F label="Personal Receptor" name="personal_receptor_id">
-              <select className="input" {...register('personal_receptor_id')}>
-                <option value="">Sin asignar</option>
+              <select
+                className={`input ${!filtrosPersonalCompletos ? 'opacity-50' : ''}`}
+                disabled={!filtrosPersonalCompletos || cargandoPersonal}
+                {...register('personal_receptor_id')}
+              >
+                <option value="">
+                  {!almacenOrigenId && !catId
+                    ? 'Selecciona almacen y categoria primero'
+                    : !almacenOrigenId
+                      ? 'Selecciona almacen primero'
+                      : !catId
+                        ? 'Selecciona categoria primero'
+                        : cargandoPersonal
+                          ? 'Cargando personal...'
+                          : personal.length === 0
+                            ? 'Sin personal para este filtro'
+                            : 'Sin asignar'}
+                </option>
                 {personal.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.cargo ? ` — ${p.cargo}` : ''}</option>)}
               </select>
             </F>
@@ -383,7 +533,7 @@ export default function RegistroFormPage() {
                     <option key={l.id} value={l.id}>
                       {l.codigo_lote}
                       {l.fecha_vencimiento
-                        ? ` — vence: ${new Date(l.fecha_vencimiento).toLocaleDateString('es-PE')}`
+                        ? ` — vence: ${toSafeLocaleDateString(l.fecha_vencimiento, 'es-PE', '')}`
                         : ''}
                     </option>
                   ))}
@@ -438,7 +588,7 @@ export default function RegistroFormPage() {
             </F>
 
             <F label="Foto Guía (JPG/PNG/PDF)" name="foto_guia">
-              <label className="btn-secondary btn-sm cursor-pointer w-full justify-center">
+              <label className={`btn-secondary btn-sm w-full justify-center ${isReadOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
                 <Upload size={13} />
                 {fotoFile ? fotoFile.name.slice(0,22)+'...' : 'Subir archivo'}
                 <input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden"
@@ -455,11 +605,17 @@ export default function RegistroFormPage() {
           </div>
         </div>
 
+        </fieldset>
+
         <div className="flex justify-end gap-3 pb-6">
-          <button type="button" className="btn-secondary" onClick={() => navigate('/registros')}>Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? <><Loader2 size={15} className="animate-spin" /> Guardando...</> : <><Save size={15} /> Guardar Registro</>}
+          <button type="button" className="btn-secondary" onClick={() => navigate('/registros')}>
+            {isReadOnly ? 'Volver' : 'Cancelar'}
           </button>
+          {!isReadOnly && (
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? <><Loader2 size={15} className="animate-spin" /> Guardando...</> : <><Save size={15} /> Guardar Registro</>}
+            </button>
+          )}
         </div>
 
       </form>
