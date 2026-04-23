@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { Warehouse, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { getMensajeError } from '../utils/api';
 
 export default function LoginPage() {
@@ -29,7 +29,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(form.email, form.password);
-      toast.success('¡Bienvenido a ZENTRA!');
+      toast.success('¡Bienvenido!');
       navigate('/');
     } catch (err) {
       toast.error(getMensajeError(err));
@@ -41,13 +41,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 backdrop-blur rounded-2xl mb-4">
-            <Warehouse size={32} className="text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white">ZENTRA</h1>
-          <p className="text-primary-200 mt-1">Sistema de Gestión de Almacenes</p>
+          <img
+            src="/DB_Impulso_oficial.png"
+            alt="Deal Brand"
+            className="h-20 mx-auto object-contain drop-shadow-lg"
+          />
         </div>
 
         {/* Card */}
@@ -96,16 +97,13 @@ export default function LoginPage() {
               className="btn-primary w-full justify-center py-2.5 mt-2"
               disabled={loading}
             >
-              {loading ? (
-                <><Loader2 size={16} className="animate-spin" /> Ingresando...</>
-              ) : 'Ingresar'}
+              {loading
+                ? <><Loader2 size={16} className="animate-spin" /> Ingresando...</>
+                : 'Ingresar'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-primary-300 text-xs mt-6">
-          ZENTRA Almacenes v1.0 &copy; {new Date().getFullYear()}
-        </p>
       </div>
     </div>
   );
