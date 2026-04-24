@@ -1,19 +1,29 @@
 import { useForm } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
-import GenericCatalogPage from '../../components/GenericCatalogPage';
-import api from '../../utils/api';
 import { Loader2 } from 'lucide-react';
+import GenericCatalogPage from '../../components/GenericCatalogPage';
+import SearchableSelect from '../../components/SearchableSelect';
+import api from '../../utils/api';
+
+function buildOptions(rows = [], labelBuilder, searchBuilder) {
+  return rows.map((row) => ({
+    value: String(row.id),
+    label: labelBuilder(row),
+    searchText: searchBuilder ? searchBuilder(row) : labelBuilder(row),
+  }));
+}
 
 function AlmacenForm({ defaults, onSubmit, onCancel, loading }) {
-  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: defaults || {} });
+  const {
+    control,
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm({ defaultValues: defaults || {} });
 
-  const { data: regiones } = useQuery({
-    queryKey: ['regiones'],
-    queryFn: () => api.get('/catalogos/regiones').then(r => r.data.datos),
-  });
-  const { data: ciudades } = useQuery({
+  const { data: ciudades = [] } = useQuery({
     queryKey: ['ciudades'],
-    queryFn: () => api.get('/catalogos/ciudades').then(r => r.data.datos),
+    queryFn: () => api.get('/catalogos/ciudades').then((response) => response.data.datos),
   });
 
   return (
@@ -21,27 +31,35 @@ function AlmacenForm({ defaults, onSubmit, onCancel, loading }) {
       <div className="modal-body space-y-4">
         <div>
           <label className="label">Nombre <span className="text-red-500">*</span></label>
-          <input className={`input ${errors.nombre ? 'input-error' : ''}`}
+          <input
+            className={`input ${errors.nombre ? 'input-error' : ''}`}
             placeholder="Ej: ALMACEN LIMA NORTE"
-            {...register('nombre', { required: 'Requerido' })} />
+            {...register('nombre', { required: 'Requerido' })}
+          />
           {errors.nombre && <p className="error-msg">{errors.nombre.message}</p>}
         </div>
+
         <div>
           <label className="label">Ciudad <span className="text-red-500">*</span></label>
-          <select className={`input ${errors.ciudad_id ? 'input-error' : ''}`}
-            {...register('ciudad_id', { required: 'Requerido' })}>
-            <option value="">Seleccionar ciudad...</option>
-            {(ciudades ?? []).map(c => (
-              <option key={c.id} value={c.id}>{c.region_nombre} – {c.nombre}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            control={control}
+            name="ciudad_id"
+            rules={{ required: 'Requerido' }}
+            options={buildOptions(
+              ciudades,
+              (ciudad) => `${ciudad.nombre} · ${ciudad.region_nombre}`,
+              (ciudad) => `${ciudad.nombre} ${ciudad.region_nombre || ''} ${ciudad.zona || ''}`
+            )}
+            placeholder="Seleccionar ciudad..."
+          />
           {errors.ciudad_id && <p className="error-msg">{errors.ciudad_id.message}</p>}
         </div>
+
         <div>
           <label className="label">Dirección</label>
-          <input className="input" placeholder="Dirección física del almacén"
-            {...register('direccion')} />
+          <input className="input" placeholder="Dirección física del almacén" {...register('direccion')} />
         </div>
+
         {defaults?.id && (
           <div className="flex items-center gap-2">
             <input type="checkbox" id="activo" {...register('activo')} defaultChecked={defaults.activo} />
@@ -49,6 +67,7 @@ function AlmacenForm({ defaults, onSubmit, onCancel, loading }) {
           </div>
         )}
       </div>
+
       <div className="modal-footer">
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>
         <button type="submit" className="btn-primary" disabled={loading}>
@@ -71,7 +90,8 @@ export default function AlmacenesPage() {
         { header: 'Nombre', accessor: 'nombre', searchable: true },
         { header: 'Ciudad', accessor: 'ciudad_nombre', searchable: true },
         { header: 'Región', accessor: 'region_nombre' },
-        { header: 'Dirección', accessor: 'direccion', render: r => r.direccion || '—' },
+        { header: 'Zona', accessor: 'zona', render: (row) => <span className="badge-gray badge">{row.zona}</span> },
+        { header: 'Dirección', accessor: 'direccion', render: (row) => row.direccion || '—' },
       ]}
       FormComponent={AlmacenForm}
     />

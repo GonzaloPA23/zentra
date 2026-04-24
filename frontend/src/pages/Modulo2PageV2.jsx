@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
   ClipboardCheck,
-  Eye,
   FileSpreadsheet,
   Truck,
   XCircle,
@@ -14,17 +13,12 @@ import {
 import api, { getMensajeError } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import SortableFilterHeader from '../components/SortableFilterHeader';
-import { downloadBlobResponse } from '../utils/download';
+import { downloadBlobResponse, getBlobErrorMessage } from '../utils/download';
 import { formatSafeDate } from '../utils/date';
 
 const TIPO_BADGE = {
   ENTRADA: 'badge-green',
   SALIDA: 'badge-red',
-  CANJES: 'badge-blue',
-  'DEGUSTACIÓN': 'badge-purple',
-  CRUCERISMO: 'badge-yellow',
-  MERCADERISMO: 'badge-gray',
-  ACTIVOS: 'badge-gray',
 };
 
 const EMPTY_TABLE_FILTERS = {
@@ -47,27 +41,106 @@ function nextSortState(current, key) {
   return { sort_by: key, sort_dir: key === 'fecha' ? 'desc' : 'asc' };
 }
 
-function RegistroRow({ row, canManageStates, onAprobar, onRechazar, onEnCamino, loading }) {
-  const [expanded, setExpanded] = useState(false);
+function DetalleExpandido({ row }) {
+  return (
+    <tr className="bg-blue-50/40">
+      <td colSpan={10} className="px-4 py-4">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
+            <div>
+              <span className="text-xs uppercase text-gray-500">Acción</span>
+              <p className="font-medium text-gray-900">{row.accion || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-gray-500">Zona</span>
+              <p className="font-medium text-gray-900">{row.zona || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-gray-500">Ciudad</span>
+              <p className="font-medium text-gray-900">{row.ciudad_nombre || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-gray-500">Personal receptor</span>
+              <p className="font-medium text-gray-900">{row.personal_receptor_nombre || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-gray-500">Indicador</span>
+              <p className="font-medium text-gray-900">{row.indicador_nombre || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-gray-500">Observaciones</span>
+              <p className="font-medium text-gray-900">{row.observaciones || '-'}</p>
+            </div>
+          </div>
 
+          <div className="rounded-xl border border-gray-200 bg-white">
+            <div className="border-b border-gray-200 px-4 py-3">
+              <h4 className="font-semibold text-gray-800">Líneas</h4>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Tipo Mercadería</th>
+                    <th>SKU</th>
+                    <th>Lote</th>
+                    <th>F. Vencimiento</th>
+                    <th>Cantidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(row.detalles || []).map((detail, index) => (
+                    <tr key={`${row.id}-${detail.id || index}`}>
+                      <td>{index + 1}</td>
+                      <td>{detail.tipo_mercaderia_nombre || '-'}</td>
+                      <td className="max-w-[280px] truncate" title={detail.sku_nombre || ''}>{detail.sku_nombre || '-'}</td>
+                      <td>{detail.codigo_lote || '-'}</td>
+                      <td>{formatSafeDate(detail.fecha_vencimiento)}</td>
+                      <td>{Number(detail.cantidad || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {row.foto_guia && (
+            <div>
+              <a
+                href={`/uploads/${row.foto_guia}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-secondary btn-sm inline-flex"
+              >
+                Ver archivo guía
+              </a>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function RegistroRow({ row, expanded, onToggle, canManageStates, onAprobar, onRechazar, onEnCamino, loading }) {
   return (
     <>
-      <tr className="cursor-pointer" onClick={() => setExpanded((prev) => !prev)}>
-        <td className="whitespace-nowrap font-medium">
-          {formatSafeDate(row.fecha)}
-        </td>
-        <td className="max-w-[180px] truncate" title={row.almacen_origen}>{row.almacen_origen}</td>
+      <tr className="cursor-pointer" onClick={() => onToggle(row.id)}>
+        <td className="whitespace-nowrap font-medium">{formatSafeDate(row.fecha)}</td>
+        <td className="max-w-[180px] truncate" title={row.almacen_origen || ''}>{row.almacen_origen || '-'}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_destino || ''}>{row.almacen_destino || '-'}</td>
-        <td>{row.categoria_nombre}</td>
-        <td><span className={TIPO_BADGE[row.tipo_accion] || 'badge-gray'}>{row.tipo_accion}</span></td>
-        <td className="max-w-[220px] truncate" title={row.sku_nombre}>{row.sku_nombre}</td>
-        <td className="font-semibold">{Number(row.cantidad || 0).toLocaleString()}</td>
+        <td>{row.categoria_nombre || '-'}</td>
+        <td><span className={TIPO_BADGE[row.tipo_accion] || 'badge-gray'}>{row.tipo_accion || '-'}</span></td>
+        <td className="max-w-[240px] truncate" title={row.sku_resumen || ''}>{row.sku_resumen || '-'}</td>
+        <td className="font-semibold">{Number(row.cantidad_total || 0).toLocaleString()}</td>
         <td>{row.nro_guia || '-'}</td>
-        <td className="text-xs text-gray-500">{row.registrado_por}</td>
+        <td className="text-xs text-gray-500">{row.registrado_por || '-'}</td>
         <td>
           <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
             {canManageStates && row.estado === 'pendiente' && (
               <button
+                type="button"
                 title="Marcar en camino"
                 disabled={loading}
                 className="btn-icon text-blue-500 hover:bg-blue-50"
@@ -79,6 +152,7 @@ function RegistroRow({ row, canManageStates, onAprobar, onRechazar, onEnCamino, 
             {canManageStates && (row.estado === 'pendiente' || row.estado === 'en_transito') && (
               <>
                 <button
+                  type="button"
                   title="Aprobar"
                   disabled={loading}
                   className="btn-icon text-green-600 hover:bg-green-50"
@@ -87,6 +161,7 @@ function RegistroRow({ row, canManageStates, onAprobar, onRechazar, onEnCamino, 
                   <CheckCircle size={15} />
                 </button>
                 <button
+                  type="button"
                   title="Rechazar"
                   disabled={loading}
                   className="btn-icon text-red-500 hover:bg-red-50"
@@ -96,69 +171,13 @@ function RegistroRow({ row, canManageStates, onAprobar, onRechazar, onEnCamino, 
                 </button>
               </>
             )}
-            <button className="btn-icon text-gray-400" onClick={() => setExpanded((prev) => !prev)}>
+            <button type="button" className="btn-icon text-gray-400" onClick={() => onToggle(row.id)}>
               {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
           </div>
         </td>
       </tr>
-      {expanded && (
-        <tr className="bg-blue-50/50">
-          <td colSpan={10} className="px-4 py-3">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Acción</span>
-                <p className="font-medium">{row.accion}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Indicador</span>
-                <p className="font-medium">{row.indicador_nombre || '-'}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Personal receptor</span>
-                <p className="font-medium">{row.personal_receptor_nombre || '-'}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Tipo mercadería</span>
-                <p className="font-medium">{row.tipo_mercaderia_nombre || '-'}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Lote</span>
-                <p className="font-medium">{row.codigo_lote || '-'}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">F. vencimiento</span>
-                <p className="font-medium">
-                  {formatSafeDate(row.fecha_vencimiento)}
-                </p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Ciudad</span>
-                <p className="font-medium">{row.ciudad_nombre || '-'}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs uppercase">Observaciones</span>
-                <p className="font-medium">{row.observaciones || '-'}</p>
-              </div>
-              {row.foto_guia && (
-                <div className="col-span-2">
-                  <span className="text-gray-500 text-xs uppercase">Foto guía</span>
-                  <div className="mt-1">
-                    <a
-                      href={`/uploads/${row.foto_guia}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-secondary btn-sm inline-flex"
-                    >
-                      <Eye size={13} /> Ver archivo
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
+      {expanded && <DetalleExpandido row={row} />}
     </>
   );
 }
@@ -180,11 +199,12 @@ function TablaModulo({
   onEnCamino,
   mutLoading,
 }) {
+  const [expandedId, setExpandedId] = useState(null);
   const sortConfig = { key: filters.sort_by, direction: filters.sort_dir };
 
   return (
-    <div className="card p-0 overflow-hidden">
-      <div className={`flex flex-col gap-3 px-5 py-4 border-b border-gray-200 ${color} md:flex-row md:items-center md:justify-between`}>
+    <div className="card overflow-hidden p-0">
+      <div className={`flex flex-col gap-3 border-b border-gray-200 px-5 py-4 ${color} md:flex-row md:items-center md:justify-between`}>
         <div className="flex items-center gap-3">
           <Icono size={20} />
           <div>
@@ -193,7 +213,7 @@ function TablaModulo({
           </div>
         </div>
         {canDownload && (
-          <button className="btn-secondary btn-sm" onClick={onExport}>
+          <button type="button" className="btn-secondary btn-sm" onClick={onExport}>
             <FileSpreadsheet size={14} /> Exportar Excel
           </button>
         )}
@@ -243,7 +263,7 @@ function TablaModulo({
                 onFilterChange={(value) => onFilterChange('q_tipo_accion', value)}
               />
               <SortableFilterHeader
-                label="SKU"
+                label="SKU(s)"
                 sortKey="sku"
                 sortConfig={sortConfig}
                 onSort={onSort}
@@ -279,16 +299,16 @@ function TablaModulo({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={10} className="text-center py-10 text-gray-400">
+                <td colSpan={10} className="py-10 text-center text-gray-400">
                   <div className="flex items-center justify-center gap-2">
-                    <div className="w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-400 border-t-transparent" />
                     Cargando...
                   </div>
                 </td>
               </tr>
             ) : registros.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center py-10 text-gray-400">
+                <td colSpan={10} className="py-10 text-center text-gray-400">
                   No hay registros en esta sección.
                 </td>
               </tr>
@@ -296,6 +316,8 @@ function TablaModulo({
               <RegistroRow
                 key={row.id}
                 row={row}
+                expanded={expandedId === row.id}
+                onToggle={(registroId) => setExpandedId((prev) => prev === registroId ? null : registroId)}
                 canManageStates={canManageStates}
                 onAprobar={onAprobar}
                 onRechazar={onRechazar}
@@ -312,7 +334,7 @@ function TablaModulo({
 
 export default function Modulo2PageV2() {
   const { hasRole } = useAuth();
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
   const [pendientesFilters, setPendientesFilters] = useState(EMPTY_TABLE_FILTERS);
   const [transitoFilters, setTransitoFilters] = useState(EMPTY_TABLE_FILTERS);
 
@@ -341,12 +363,12 @@ export default function Modulo2PageV2() {
     refetchInterval: 30_000,
   });
 
-  const mutEstado = useMutation({
+  const estadoMutation = useMutation({
     mutationFn: ({ id, estado }) => api.patch(`/registros/${id}/estado`, { estado }),
     onSuccess: (_, { estado }) => {
-      qc.invalidateQueries({ queryKey: ['registros'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
-      qc.invalidateQueries({ queryKey: ['auditoria-registros'] });
+      queryClient.invalidateQueries({ queryKey: ['registros'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['auditoria-registros'] });
 
       const messages = {
         aprobado: 'Registro aprobado',
@@ -358,22 +380,6 @@ export default function Modulo2PageV2() {
     onError: (error) => toast.error(getMensajeError(error)),
   });
 
-  const updatePendientesFilter = (key, value) => {
-    setPendientesFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const updateTransitoFilter = (key, value) => {
-    setTransitoFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const sortPendientes = (key) => {
-    setPendientesFilters((prev) => ({ ...prev, ...nextSortState(prev, key) }));
-  };
-
-  const sortTransito = (key) => {
-    setTransitoFilters((prev) => ({ ...prev, ...nextSortState(prev, key) }));
-  };
-
   const exportSection = async (estado, filters, fallbackName) => {
     try {
       const params = new URLSearchParams({ estado });
@@ -384,10 +390,9 @@ export default function Modulo2PageV2() {
       const response = await api.get(`/registros/export/excel?${params.toString()}`, {
         responseType: 'blob',
       });
-
       downloadBlobResponse(response, fallbackName);
     } catch (error) {
-      toast.error(getMensajeError(error));
+      toast.error(await getBlobErrorMessage(error));
     }
   };
 
@@ -400,10 +405,12 @@ export default function Modulo2PageV2() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Control de Tránsito y Aprobaciones</h1>
-        <p className="text-sm text-gray-500 mt-1">Módulo 2 · Visibilidad de guías y aprobación de ingresos</p>
+        <p className="mt-1 text-sm text-gray-500">
+          Los descargables usan exactamente el mismo dataset filtrado que ves en pantalla.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {statsCards.map((stat, index) => (
           <div key={stat.label} className="stat-card">
             <div className={`stat-icon ${stat.color}`}>
@@ -415,7 +422,7 @@ export default function Modulo2PageV2() {
             </div>
             {stat.value > 0 && (
               <div className="ml-auto">
-                <span className={`inline-block w-3 h-3 rounded-full ${stat.dot} animate-pulse`} />
+                <span className={`inline-block h-3 w-3 rounded-full ${stat.dot} animate-pulse`} />
               </div>
             )}
           </div>
@@ -429,15 +436,15 @@ export default function Modulo2PageV2() {
         registros={enTransito}
         isLoading={loadTransito}
         filters={transitoFilters}
-        onFilterChange={updateTransitoFilter}
-        onSort={sortTransito}
+        onFilterChange={(key, value) => setTransitoFilters((prev) => ({ ...prev, [key]: value }))}
+        onSort={(key) => setTransitoFilters((prev) => ({ ...prev, ...nextSortState(prev, key) }))}
         onExport={() => exportSection('en_transito', transitoFilters, `zentra_guias_en_camino_${Date.now()}.xlsx`)}
         canDownload={canDownload}
         canManageStates={canManageStates}
-        onAprobar={(id) => mutEstado.mutate({ id, estado: 'aprobado' })}
-        onRechazar={(id) => mutEstado.mutate({ id, estado: 'rechazado' })}
-        onEnCamino={(id) => mutEstado.mutate({ id, estado: 'en_transito' })}
-        mutLoading={mutEstado.isPending}
+        onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
+        onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
+        onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
+        mutLoading={estadoMutation.isPending}
       />
 
       <TablaModulo
@@ -447,18 +454,18 @@ export default function Modulo2PageV2() {
         registros={pendientes}
         isLoading={loadPendientes}
         filters={pendientesFilters}
-        onFilterChange={updatePendientesFilter}
-        onSort={sortPendientes}
+        onFilterChange={(key, value) => setPendientesFilters((prev) => ({ ...prev, [key]: value }))}
+        onSort={(key) => setPendientesFilters((prev) => ({ ...prev, ...nextSortState(prev, key) }))}
         onExport={() => exportSection('pendiente', pendientesFilters, `zentra_aprobacion_ingresos_${Date.now()}.xlsx`)}
         canDownload={canDownload}
         canManageStates={canManageStates}
-        onAprobar={(id) => mutEstado.mutate({ id, estado: 'aprobado' })}
-        onRechazar={(id) => mutEstado.mutate({ id, estado: 'rechazado' })}
-        onEnCamino={(id) => mutEstado.mutate({ id, estado: 'en_transito' })}
-        mutLoading={mutEstado.isPending}
+        onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
+        onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
+        onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
+        mutLoading={estadoMutation.isPending}
       />
 
-      <p className="text-xs text-gray-400 text-center">
+      <p className="text-center text-xs text-gray-400">
         Se actualiza automáticamente cada 30 segundos · Haz clic en una fila para ver el detalle completo
       </p>
     </div>

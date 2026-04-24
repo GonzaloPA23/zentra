@@ -13,8 +13,8 @@ const AUDIT_SORT_FIELDS = {
   usuario: 'u.nombre',
   accion: 'a.accion',
   registro: 'a.registro_id',
-  sku: 'sk.nombre',
-  almacen: 'ao.nombre',
+  sku: "CONCAT(COALESCE(sk.nombre, ''), ' ', COALESCE(a.detalle, ''))",
+  almacen: "CONCAT(COALESCE(ao.nombre, ''), ' ', COALESCE(ad.nombre, ''), ' ', COALESCE(a.detalle, ''))",
 };
 
 function addLikeFilter(where, params, value, expression) {
@@ -24,6 +24,122 @@ function addLikeFilter(where, params, value, expression) {
   where += ` AND ${expression} LIKE ?`;
   params.push(`%${term}%`);
   return where;
+}
+
+function normalizeAuditText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function parseAuditId(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function hasSnapshotValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
+}
+
+function mergeAuditSnapshot(base = {}, next = {}) {
+  const merged = { ...base };
+
+  Object.entries(next || {}).forEach(([key, value]) => {
+    if (!hasSnapshotValue(merged[key]) && hasSnapshotValue(value)) {
+      merged[key] = value;
+    }
+  });
+
+  return merged;
+}
+
+async function getAuditWarehouseNameMap(rows) {
+  const warehouseIds = new Set();
+
+  rows.forEach((row) => {
+    const detail = row.detalle_json || parseAuditDetail(row.detalle);
+    [
+      row.almacen_origen_id,
+      row.almacen_destino_id,
+      detail?.almacen_origen_id,
+      detail?.almacen_destino_id,
+    ].forEach((value) => {
+      const id = parseAuditId(value);
+      if (id) warehouseIds.add(id);
+    });
+  });
+
+  if (!warehouseIds.size) return new Map();
+
+  const ids = [...warehouseIds];
+  const placeholders = ids.map(() => '?').join(',');
+  const [rowsAlmacenes] = await pool.query(
+    `SELECT id, nombre FROM almacenes WHERE id IN (${placeholders})`,
+    ids
+  );
+
+  return new Map(rowsAlmacenes.map((row) => [Number(row.id), row.nombre || '']));
+}
+
+function buildAuditSnapshotCandidate(row, warehouseNameMap) {
+  const detail = row.detalle_json || null;
+  const almacenOrigenId = parseAuditId(row.almacen_origen_id) || parseAuditId(detail?.almacen_origen_id);
+  const almacenDestinoId = parseAuditId(row.almacen_destino_id) || parseAuditId(detail?.almacen_destino_id);
+
+  return {
+    estado_actual: normalizeAuditText(row.estado_actual) || normalizeAuditText(detail?.estado),
+    sku_nombre:
+      normalizeAuditText(row.sku_nombre)
+      || normalizeAuditText(detail?.sku_resumen)
+      || normalizeAuditText(detail?.sku_nombre),
+    almacen_origen:
+      normalizeAuditText(row.almacen_origen)
+      || normalizeAuditText(detail?.almacen_origen_nombre)
+      || warehouseNameMap.get(almacenOrigenId)
+      || '',
+    almacen_destino:
+      normalizeAuditText(row.almacen_destino)
+      || normalizeAuditText(detail?.almacen_destino_nombre)
+      || warehouseNameMap.get(almacenDestinoId)
+      || '',
+  };
+}
+
+async function enrichAuditRows(rows) {
+  const parsedRows = rows.map((row) => ({
+    ...row,
+    detalle_json: parseAuditDetail(row.detalle),
+  }));
+  const warehouseNameMap = await getAuditWarehouseNameMap(parsedRows);
+  const snapshotByRegistroId = new Map();
+
+  parsedRows.forEach((row) => {
+    const registroId = parseAuditId(row.registro_id);
+    if (!registroId) return;
+
+    const current = snapshotByRegistroId.get(registroId) || {};
+    snapshotByRegistroId.set(
+      registroId,
+      mergeAuditSnapshot(current, buildAuditSnapshotCandidate(row, warehouseNameMap))
+    );
+  });
+
+  return parsedRows.map((row) => {
+    const registroId = parseAuditId(row.registro_id);
+    const rowSnapshot = buildAuditSnapshotCandidate(row, warehouseNameMap);
+    const groupedSnapshot = registroId ? snapshotByRegistroId.get(registroId) : null;
+    const mergedSnapshot = mergeAuditSnapshot(rowSnapshot, groupedSnapshot);
+
+    return {
+      ...row,
+      estado_actual: mergedSnapshot.estado_actual || '',
+      sku_nombre: mergedSnapshot.sku_nombre || '',
+      almacen_origen: mergedSnapshot.almacen_origen || '',
+      almacen_destino: mergedSnapshot.almacen_destino || '',
+      descripcion: describeAuditAction(row.accion, row.detalle_json),
+    };
+  });
 }
 
 async function buildAuditQuery(req) {
@@ -63,8 +179,8 @@ async function buildAuditQuery(req) {
   }
 
   where = addLikeFilter(where, params, q_usuario, "CONCAT(u.nombre, ' ', u.apellido)");
-  where = addLikeFilter(where, params, q_sku, 'sk.nombre');
-  where = addLikeFilter(where, params, q_almacen, "CONCAT(COALESCE(ao.nombre, ''), ' ', COALESCE(ad.nombre, ''))");
+  where = addLikeFilter(where, params, q_sku, "CONCAT(COALESCE(sk.nombre, ''), ' ', COALESCE(a.detalle, ''))");
+  where = addLikeFilter(where, params, q_almacen, "CONCAT(COALESCE(ao.nombre, ''), ' ', COALESCE(ad.nombre, ''), ' ', COALESCE(a.detalle, ''))");
   where = addLikeFilter(where, params, q_detalle, 'a.detalle');
 
   where += scope.clause;
@@ -102,6 +218,8 @@ router.get('/registros', requireRol('superadmin', 'admin', 'supervisor'), async 
       `SELECT a.*,
               CONCAT(u.nombre, ' ', u.apellido) AS actor_nombre,
               r.estado AS estado_actual,
+              r.almacen_origen_id,
+              r.almacen_destino_id,
               ao.nombre AS almacen_origen,
               ad.nombre AS almacen_destino,
               sk.nombre AS sku_nombre
@@ -117,14 +235,7 @@ router.get('/registros', requireRol('superadmin', 'admin', 'supervisor'), async 
       [...params, limit, offset]
     );
 
-    const datos = rows.map((row) => {
-      const detalle_json = parseAuditDetail(row.detalle);
-      return {
-        ...row,
-        detalle_json,
-        descripcion: describeAuditAction(row.accion, detalle_json),
-      };
-    });
+    const datos = await enrichAuditRows(rows);
 
     res.json({
       ok: true,
@@ -149,6 +260,8 @@ router.get('/registros/export/excel', requireRol('superadmin', 'admin', 'supervi
       `SELECT a.*,
               CONCAT(u.nombre, ' ', u.apellido) AS actor_nombre,
               r.estado AS estado_actual,
+              r.almacen_origen_id,
+              r.almacen_destino_id,
               ao.nombre AS almacen_origen,
               ad.nombre AS almacen_destino,
               sk.nombre AS sku_nombre
@@ -163,8 +276,9 @@ router.get('/registros/export/excel', requireRol('superadmin', 'admin', 'supervi
       params
     );
 
-    const excelRows = rows.map((row) => {
-      const detalle_json = parseAuditDetail(row.detalle);
+    const enrichedRows = await enrichAuditRows(rows);
+
+    const excelRows = enrichedRows.map((row) => {
       return {
         fecha: row.created_at ? new Date(row.created_at) : null,
         usuario: row.actor_nombre || 'Sistema',
@@ -174,7 +288,7 @@ router.get('/registros/export/excel', requireRol('superadmin', 'admin', 'supervi
         sku: row.sku_nombre || '',
         almacen_origen: row.almacen_origen || '',
         almacen_destino: row.almacen_destino || '',
-        detalle: describeAuditAction(row.accion, detalle_json),
+        detalle: row.descripcion || describeAuditAction(row.accion, row.detalle_json),
       };
     });
 
