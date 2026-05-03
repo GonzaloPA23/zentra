@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import api from "../utils/api";
+import { formatSafeDate } from "../utils/date";
 import {
   LayoutDashboard,
   ClipboardList,
@@ -18,6 +21,7 @@ import {
   Warehouse,
   UserCheck,
   Activity,
+  AlertTriangle,
   Layers,
   Bell,
   Truck,
@@ -141,11 +145,41 @@ function NavItem({ item, collapsed, onClick }) {
   );
 }
 
+function NotificationEntry({ tone = "gray", title, description, meta, onClick }) {
+  const toneClasses = {
+    blue: "border-blue-200 bg-blue-50 hover:bg-blue-100/70",
+    yellow: "border-yellow-200 bg-yellow-50 hover:bg-yellow-100/70",
+    red: "border-red-200 bg-red-50 hover:bg-red-100/70",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${toneClasses[tone] || "border-gray-200 bg-gray-50 hover:bg-gray-100"}`}
+    >
+      <p className="text-sm font-medium text-gray-900">{title}</p>
+      {description && <p className="mt-1 text-xs text-gray-600">{description}</p>}
+      {meta && <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-500">{meta}</p>}
+    </button>
+  );
+}
+
 export default function Layout() {
   const { usuario, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsRef = useRef(null);
+
+  const { data: dashboardData } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => api.get("/dashboard/resumen").then((response) => response.data.datos),
+    enabled: !!usuario,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
 
   const handleLogout = () => {
     logout();
@@ -158,6 +192,86 @@ export default function Layout() {
     supervisor: "badge-green",
     almacenero: "badge-gray",
   };
+
+  const alertas = dashboardData?.alertas ?? {};
+  const notificationSections = useMemo(() => {
+    const transito = Array.isArray(alertas.transito) ? alertas.transito : [];
+    const vencidos = Array.isArray(alertas.vencidos) ? alertas.vencidos : [];
+    const proximos = Array.isArray(alertas.vencimientos_proximos) ? alertas.vencimientos_proximos : [];
+    const stockCritico = Array.isArray(alertas.stock_critico) ? alertas.stock_critico : [];
+    const stockBajo = Array.isArray(alertas.stock_bajo) ? alertas.stock_bajo : [];
+    const stockLimites = alertas.stock_limites ?? { critico: 100, bajo: 200 };
+
+    return [
+      {
+        key: "transito",
+        title: `Transito (${transito.length})`,
+        tone: "blue",
+        items: transito,
+        path: "/transito-aprobaciones",
+        renderTitle: (item) => item.nro_guia ? `Guia ${item.nro_guia}` : `Registro #${item.id}`,
+        renderDescription: (item) => `${item.almacen_origen || "-"} -> ${item.almacen_destino || "-"}`,
+        renderMeta: (item) => item.sku_resumen || `Fecha ${formatSafeDate(item.fecha)}`,
+        emptyLabel: "No hay productos en transito.",
+      },
+      {
+        key: "vencidos",
+        title: `Vencidos (${vencidos.length})`,
+        tone: "red",
+        items: vencidos,
+        path: "/",
+        renderTitle: (item) => item.sku || "SKU sin nombre",
+        renderDescription: (item) => `${item.almacen || "-"} · Cantidad ${item.cantidad ?? 0}`,
+        renderMeta: (item) => `Vence ${formatSafeDate(item.fecha_vencimiento)}`,
+        emptyLabel: "No hay productos vencidos.",
+      },
+      {
+        key: "proximos",
+        title: `Por vencer (${proximos.length})`,
+        tone: "yellow",
+        items: proximos,
+        path: "/",
+        renderTitle: (item) => item.sku || "SKU sin nombre",
+        renderDescription: (item) => `${item.almacen || "-"} · Cantidad ${item.cantidad ?? 0}`,
+        renderMeta: (item) => `Vence ${formatSafeDate(item.fecha_vencimiento)}`,
+        emptyLabel: "No hay vencimientos proximos.",
+      },
+      {
+        key: "stock_critico",
+        title: `Stock critico (${stockCritico.length})`,
+        tone: "red",
+        items: stockCritico,
+        path: "/",
+        renderTitle: (item) => item.sku || "SKU sin nombre",
+        renderDescription: (item) => `${item.almacen || "-"} · Stock ${item.cantidad ?? 0}`,
+        renderMeta: () => `Base ${stockLimites.critico} und`,
+        emptyLabel: "No hay stock critico.",
+      },
+      {
+        key: "stock_bajo",
+        title: `Stock bajo (${stockBajo.length})`,
+        tone: "yellow",
+        items: stockBajo,
+        path: "/",
+        renderTitle: (item) => item.sku || "SKU sin nombre",
+        renderDescription: (item) => `${item.almacen || "-"} · Stock ${item.cantidad ?? 0}`,
+        renderMeta: () => `Base ${stockLimites.bajo} und`,
+        emptyLabel: "No hay stock bajo.",
+      },
+    ];
+  }, [alertas]);
+  const totalNotifications = notificationSections.reduce((acc, section) => acc + section.items.length, 0);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -270,9 +384,79 @@ export default function Layout() {
           </button>
           <div className="flex-1 lg:flex-none" />
           <div className="flex items-center gap-2">
-            <button className="btn-icon text-gray-500 relative">
-              <Bell size={18} />
-            </button>
+            <div className="relative" ref={notificationsRef}>
+              <button
+                type="button"
+                className="btn-icon text-gray-500 relative"
+                onClick={() => setNotificationsOpen((prev) => !prev)}
+                title="Notificaciones"
+              >
+                <Bell size={18} />
+                {totalNotifications > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    {totalNotifications > 99 ? "99+" : totalNotifications}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 top-12 z-50 w-[380px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                  <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-3">
+                    <AlertTriangle size={16} className="text-amber-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Notificaciones</p>
+                      <p className="text-xs text-gray-500">
+                        {totalNotifications > 0 ? `${totalNotifications} alerta(s) activas` : "Sin alertas activas"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="max-h-[70vh] overflow-y-auto">
+                    {notificationSections.map((section) => (
+                      <div key={section.key} className="border-b border-gray-100 px-4 py-3 last:border-b-0">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            {section.title}
+                          </p>
+                          {section.items.length > 0 && (
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-primary-600 hover:underline"
+                              onClick={() => {
+                                navigate(section.path);
+                                setNotificationsOpen(false);
+                              }}
+                            >
+                              Ver
+                            </button>
+                          )}
+                        </div>
+
+                        {section.items.length === 0 ? (
+                          <p className="text-xs text-gray-400">{section.emptyLabel}</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {section.items.map((item, index) => (
+                              <NotificationEntry
+                                key={`${section.key}-${item.id || item.sku_id || index}`}
+                                tone={section.tone}
+                                title={section.renderTitle(item)}
+                                description={section.renderDescription(item)}
+                                meta={section.renderMeta(item)}
+                                onClick={() => {
+                                  navigate(section.path);
+                                  setNotificationsOpen(false);
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

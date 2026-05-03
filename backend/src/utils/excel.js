@@ -51,6 +51,14 @@ function applyBodyStyle(cell) {
   };
 }
 
+function applyLinkStyle(cell) {
+  cell.font = {
+    ...(cell.font || {}),
+    color: { argb: '0563C1' },
+    underline: true,
+  };
+}
+
 async function sendExcelWorkbook(res, {
   fileName,
   sheetName,
@@ -95,6 +103,14 @@ async function sendExcelWorkbook(res, {
       }
       if (column.type === 'integer' && cell.value !== null && cell.value !== undefined && cell.value !== '') {
         cell.numFmt = '#,##0';
+      }
+      if (column.type === 'link' && cell.value) {
+        if (typeof cell.value === 'string') {
+          cell.value = { text: cell.value, hyperlink: cell.value };
+        }
+        if (cell.value?.hyperlink) {
+          applyLinkStyle(cell);
+        }
       }
     });
   });

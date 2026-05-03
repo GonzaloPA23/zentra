@@ -9,7 +9,7 @@ const {
   getWarehouseScope,
   recordMatchesAssignedWarehouses,
 } = require('../utils/warehouseScope');
-const { insertAuditLog, buildRegistroAuditSnapshot } = require('../utils/audit');
+const { insertAuditLog, buildRegistroAuditSnapshot, parseAuditDetail } = require('../utils/audit');
 const { sendExcelWorkbook } = require('../utils/excel');
 
 const router = express.Router();
@@ -46,7 +46,9 @@ const STOCK_MOVEMENT_EFFECTS = {
   SALIDA_TRANSITO: { originDelta: -1, destinationDelta: 0 },
   INGRESO_APROBADO: { originDelta: 0, destinationDelta: 1 },
   REVERSA_RECHAZO: { originDelta: 1, destinationDelta: 0 },
+  STOCK_INITIAL: { originDelta: 0, destinationDelta: 1 },
 };
+const STOCK_EPSILON = 0.000001;
 
 const DETAIL_COUNT_EXPR = 'COALESCE((SELECT COUNT(*) FROM registro_detalles rd_count WHERE rd_count.registro_id = r.id), 0)';
 const TOTAL_CANTIDAD_EXPR = 'COALESCE((SELECT SUM(rd_total.cantidad) FROM registro_detalles rd_total WHERE rd_total.registro_id = r.id), r.cantidad, 0)';
@@ -94,6 +96,26 @@ function normalizeOptionalString(value) {
   if (value === null || value === undefined) return null;
   const normalized = String(value).trim();
   return normalized ? normalized : null;
+}
+
+function buildPublicFileUrl(req, fileName) {
+  if (!req || !fileName) return null;
+  const protocol = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+    .split(',')[0]
+    .trim();
+  const host = req.get('host');
+  if (!host) return null;
+  return `${protocol}://${host}/uploads/${encodeURIComponent(fileName)}`;
+}
+
+function buildFotoGuiaCellValue(req, fileName) {
+  const url = buildPublicFileUrl(req, fileName);
+  if (!url) return '';
+  return {
+    text: 'Descargar guía',
+    hyperlink: url,
+    tooltip: fileName,
+  };
 }
 
 function padDateSegment(value) {
@@ -494,6 +516,35 @@ async function getRegistroById(executor, req, id) {
   return registro;
 }
 
+async function getCurrentStockAmount(executor, {
+  empresa_id,
+  almacen_id,
+  sku_id,
+  lote_id,
+}) {
+  if (!empresa_id || !almacen_id || !sku_id) {
+    return 0;
+  }
+
+  const normalizedLoteId = parsePositiveInt(lote_id) || null;
+  const [rows] = await executor.query(
+    normalizedLoteId
+      ? `SELECT cantidad
+         FROM stock_almacen
+         WHERE empresa_id=? AND almacen_id=? AND sku_id=? AND lote_id=?
+         LIMIT 1`
+      : `SELECT cantidad
+         FROM stock_almacen
+         WHERE empresa_id=? AND almacen_id=? AND sku_id=? AND lote_id IS NULL
+         LIMIT 1`,
+    normalizedLoteId
+      ? [empresa_id, almacen_id, sku_id, normalizedLoteId]
+      : [empresa_id, almacen_id, sku_id]
+  );
+
+  return Number(rows[0]?.cantidad || 0);
+}
+
 async function upsertStock(executor, { empresa_id, almacen_id, sku_id, lote_id, cantidad }) {
   if (!almacen_id || !sku_id || !cantidad) return;
 
@@ -520,7 +571,11 @@ async function upsertStock(executor, { empresa_id, almacen_id, sku_id, lote_id, 
     const stockId = existingRows[0].id;
     const nextCantidad = Number(existingRows[0].cantidad || 0) + normalizedCantidad;
 
-    if (Math.abs(nextCantidad) < 0.000001) {
+    if (nextCantidad < -STOCK_EPSILON) {
+      throw new Error('El stock final no puede quedar negativo');
+    }
+
+    if (Math.abs(nextCantidad) < STOCK_EPSILON) {
       await executor.query('DELETE FROM stock_almacen WHERE id=?', [stockId]);
       return;
     }
@@ -532,11 +587,58 @@ async function upsertStock(executor, { empresa_id, almacen_id, sku_id, lote_id, 
     return;
   }
 
+  if (normalizedCantidad < -STOCK_EPSILON) {
+    throw new Error('El stock final no puede quedar negativo');
+  }
+
   await executor.query(
     `INSERT INTO stock_almacen (empresa_id, almacen_id, sku_id, lote_id, cantidad)
      VALUES (?,?,?,?,?)`,
     [empresa_id, almacen_id, sku_id, normalizedLoteId, normalizedCantidad]
   );
+}
+
+async function ensureStockAvailabilityForBatch(executor, registro, tipoMovimiento) {
+  const detalles = Array.isArray(registro.detalles) ? registro.detalles : [];
+  const effects = getMovementEffects(tipoMovimiento);
+
+  if (!effects.originDelta || effects.originDelta >= 0 || !registro.almacen_origen_id) {
+    return;
+  }
+
+  const requiredByKey = new Map();
+
+  detalles.forEach((detail) => {
+    const cantidad = Number(detail.cantidad || 0);
+    if (!cantidad || !detail.sku_id) return;
+
+    const loteKey = parsePositiveInt(detail.lote_id) || 'sin-lote';
+    const key = `${registro.almacen_origen_id}|${detail.sku_id}|${loteKey}`;
+    const current = requiredByKey.get(key) || {
+      empresa_id: registro.empresa_id,
+      almacen_id: registro.almacen_origen_id,
+      sku_id: detail.sku_id,
+      lote_id: parsePositiveInt(detail.lote_id) || null,
+      sku_nombre: detail.sku_nombre || `SKU ${detail.sku_id}`,
+      codigo_lote: detail.codigo_lote || 'SIN LOTE',
+      cantidad_requerida: 0,
+    };
+
+    current.cantidad_requerida += cantidad * Math.abs(effects.originDelta);
+    requiredByKey.set(key, current);
+  });
+
+  for (const stockRequest of requiredByKey.values()) {
+    const available = await getCurrentStockAmount(executor, stockRequest);
+    const finalStock = available - stockRequest.cantidad_requerida;
+
+    if (finalStock < -STOCK_EPSILON) {
+      const almacen = registro.almacen_origen || `almacen ${stockRequest.almacen_id}`;
+      throw new Error(
+        `Stock insuficiente para ${stockRequest.sku_nombre} (${stockRequest.codigo_lote}) en ${almacen}. Disponible: ${available}, salida solicitada: ${stockRequest.cantidad_requerida}`
+      );
+    }
+  }
 }
 
 function getMovementEffects(tipoMovimiento = 'APROBACION') {
@@ -566,6 +668,8 @@ async function insertStockMovement(executor, movement) {
 async function applyStockMovementBatch(executor, registro, tipoMovimiento, usuarioId) {
   const detalles = Array.isArray(registro.detalles) ? registro.detalles : [];
   const effects = getMovementEffects(tipoMovimiento);
+
+  await ensureStockAvailabilityForBatch(executor, registro, tipoMovimiento);
 
   for (const detail of detalles) {
     const cantidad = Number(detail.cantidad || 0);
@@ -774,7 +878,6 @@ async function validateRegistroPayloadV2(executor, req, payload, { currentFotoGu
   if (!personalReceptorId) throw new Error('Personal receptor requerido');
   if (!indicadorId) throw new Error('Indicador requerido');
   if (!normalizeOptionalString(payload.nro_guia)) throw new Error('Numero de guia requerido');
-  if (!normalizeOptionalString(payload.observaciones)) throw new Error('Observaciones requeridas');
   if (!req.file && !currentFotoGuia) throw new Error('Foto guia requerida');
 
   if (!Array.isArray(payload.detalles) || !payload.detalles.length) {
@@ -807,7 +910,7 @@ async function validateRegistroPayloadV2(executor, req, payload, { currentFotoGu
 
   const warehouseIds = [...new Set([almacenOrigenId, almacenDestinoId])];
   const warehousePlaceholders = warehouseIds.map(() => '?').join(',');
-  let warehouseQuery = `SELECT a.id, a.ciudad_id,
+  let warehouseQuery = `SELECT a.id, a.nombre, a.ciudad_id,
                                CASE WHEN UPPER(c.nombre)='LIMA' THEN 'LIMA' ELSE 'PROVINCIA' END AS zona
                         FROM almacenes a
                         JOIN ciudades c ON c.id = a.ciudad_id
@@ -985,6 +1088,13 @@ async function validateRegistroPayloadV2(executor, req, payload, { currentFotoGu
     });
   });
 
+  await ensureStockAvailabilityForBatch(executor, {
+    empresa_id: req.empresa_id,
+    almacen_origen_id: almacenOrigenId,
+    almacen_origen: warehouseMap.get(almacenOrigenId)?.nombre || `almacen ${almacenOrigenId}`,
+    detalles: normalizedDetails,
+  }, 'SALIDA_TRANSITO');
+
   return {
     ...payload,
     ciudad_id: ciudadId,
@@ -1028,7 +1138,6 @@ async function validateRegistroPayload(executor, req, payload, { currentFotoGuia
   if (!personalReceptorId) throw new Error('Personal receptor requerido');
   if (!indicadorId) throw new Error('Indicador requerido');
   if (!normalizeOptionalString(payload.nro_guia)) throw new Error('Número de guía requerido');
-  if (!normalizeOptionalString(payload.observaciones)) throw new Error('Observaciones requeridas');
   if (!req.file && !currentFotoGuia) throw new Error('Foto guía requerida');
 
   if (!Array.isArray(payload.detalles) || !payload.detalles.length) {
@@ -1231,7 +1340,164 @@ async function validateRegistroPayload(executor, req, payload, { currentFotoGuia
   };
 }
 
-function mapRegistroExportRows(registros = []) {
+async function validateStockInitializationPayload(executor, req, payload = {}) {
+  const almacenId = parsePositiveInt(payload.almacen_id);
+  const skuId = parsePositiveInt(payload.sku_id);
+  const loteId = parsePositiveInt(payload.lote_id);
+  const cantidad = parsePositiveFloat(payload.cantidad);
+  const observaciones = normalizeOptionalString(payload.observaciones);
+  const codigoLote = normalizeOptionalString(payload.codigo_lote);
+  const fechaVencimientoInput = normalizeDateInputValue(payload.fecha_vencimiento);
+
+  if (!almacenId) throw new Error('Almacen requerido');
+  if (!skuId) throw new Error('SKU requerido');
+  if (!cantidad) throw new Error('Cantidad invalida');
+
+  const scope = await getWarehouseScope(req, 'r', executor);
+  if (scope.ids.length && !scope.ids.includes(almacenId)) {
+    const error = new Error('El almacen no pertenece a tus almacenes asignados');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  let warehouseQuery = `SELECT
+      a.id,
+      a.nombre,
+      a.ciudad_id,
+      c.nombre AS ciudad_nombre,
+      CASE WHEN UPPER(c.nombre)='LIMA' THEN 'LIMA' ELSE 'PROVINCIA' END AS zona
+    FROM almacenes a
+    JOIN ciudades c ON c.id = a.ciudad_id
+    JOIN regiones r ON r.id = c.region_id
+    WHERE a.id=? AND a.activo=1`;
+  const warehouseParams = [almacenId];
+  if (req.empresa_id) {
+    warehouseQuery += ' AND r.empresa_id=?';
+    warehouseParams.push(req.empresa_id);
+  }
+  const [warehouseRows] = await executor.query(warehouseQuery, warehouseParams);
+  const warehouse = warehouseRows[0];
+  if (!warehouse) {
+    throw new Error('Almacen no encontrado');
+  }
+
+  let skuQuery = `SELECT
+      s.*,
+      c.nombre AS categoria_nombre,
+      tm.nombre AS tipo_mercaderia_nombre
+    FROM skus s
+    JOIN categorias c ON c.id = s.categoria_id
+    LEFT JOIN tipos_mercaderia tm ON tm.id = s.tipo_mercaderia_id
+    WHERE s.id=? AND s.activo=1`;
+  const skuParams = [skuId];
+  if (req.empresa_id) {
+    skuQuery += ' AND s.empresa_id=?';
+    skuParams.push(req.empresa_id);
+  }
+  const [skuRows] = await executor.query(skuQuery, skuParams);
+  const sku = skuRows[0];
+  if (!sku) {
+    throw new Error('SKU no encontrado');
+  }
+  if (String(sku.zona || '').toUpperCase() !== String(warehouse.zona || '').toUpperCase()) {
+    throw new Error('El SKU no pertenece a la zona del almacen seleccionado');
+  }
+
+  const skuManejaLote = parseFlag(sku.tiene_lote);
+  const skuManejaVencimiento = parseFlag(sku.tiene_vencimiento);
+  let lote = null;
+  let shouldCreateLote = false;
+  let shouldReactivateLote = false;
+  let shouldUpdateLoteFecha = false;
+  let resolvedFechaVencimiento = null;
+
+  if (skuManejaLote) {
+    if (loteId) {
+      let loteQuery = `SELECT
+          l.id,
+          l.sku_id,
+          l.codigo_lote,
+          l.fecha_vencimiento,
+          l.activo
+        FROM lotes l
+        JOIN skus s ON s.id = l.sku_id
+        WHERE l.id=? AND l.sku_id=?`;
+      const loteParams = [loteId, skuId];
+      if (req.empresa_id) {
+        loteQuery += ' AND s.empresa_id=?';
+        loteParams.push(req.empresa_id);
+      }
+      const [loteRows] = await executor.query(loteQuery, loteParams);
+      lote = loteRows[0];
+
+      if (!lote || !parseFlag(lote.activo)) {
+        throw new Error('El lote seleccionado no esta disponible');
+      }
+
+      resolvedFechaVencimiento = normalizeDateInputValue(lote.fecha_vencimiento) || fechaVencimientoInput;
+      shouldUpdateLoteFecha = !normalizeDateInputValue(lote.fecha_vencimiento) && !!fechaVencimientoInput;
+    } else if (codigoLote) {
+      let loteCodigoQuery = `SELECT
+          l.id,
+          l.sku_id,
+          l.codigo_lote,
+          l.fecha_vencimiento,
+          l.activo
+        FROM lotes l
+        JOIN skus s ON s.id = l.sku_id
+        WHERE l.sku_id=? AND l.codigo_lote=?
+        LIMIT 1`;
+      const loteCodigoParams = [skuId, codigoLote];
+      if (req.empresa_id) {
+        loteCodigoQuery += ' AND s.empresa_id=?';
+        loteCodigoParams.push(req.empresa_id);
+      }
+      const [existingLoteRows] = await executor.query(loteCodigoQuery, loteCodigoParams);
+      lote = existingLoteRows[0] || null;
+
+      if (lote) {
+        shouldReactivateLote = !parseFlag(lote.activo);
+        resolvedFechaVencimiento = normalizeDateInputValue(lote.fecha_vencimiento) || fechaVencimientoInput;
+        shouldUpdateLoteFecha = !normalizeDateInputValue(lote.fecha_vencimiento) && !!fechaVencimientoInput;
+      } else {
+        shouldCreateLote = true;
+        resolvedFechaVencimiento = fechaVencimientoInput;
+      }
+    } else {
+      throw new Error('Debe seleccionar un lote o registrar un nuevo codigo de lote');
+    }
+
+    if (skuManejaVencimiento && !resolvedFechaVencimiento) {
+      throw new Error('La fecha de vencimiento es obligatoria para este SKU');
+    }
+  }
+
+  return {
+    almacen_id: almacenId,
+    almacen_nombre: warehouse.nombre || '',
+    ciudad_id: warehouse.ciudad_id || null,
+    ciudad_nombre: warehouse.ciudad_nombre || '',
+    zona: warehouse.zona || '',
+    sku_id: skuId,
+    sku_nombre: sku.nombre || '',
+    sku_codigo: sku.codigo || '',
+    categoria_id: sku.categoria_id || null,
+    categoria_nombre: sku.categoria_nombre || '',
+    tipo_mercaderia_id: sku.tipo_mercaderia_id || null,
+    tipo_mercaderia_nombre: sku.tipo_mercaderia_nombre || '',
+    cantidad,
+    observaciones,
+    sku_maneja_lote: skuManejaLote,
+    lote_id: lote?.id ? Number(lote.id) : null,
+    codigo_lote: lote?.codigo_lote || codigoLote || null,
+    fecha_vencimiento: resolvedFechaVencimiento,
+    should_create_lote: shouldCreateLote,
+    should_reactivate_lote: shouldReactivateLote,
+    should_update_lote_fecha: shouldUpdateLoteFecha,
+  };
+}
+
+function mapRegistroExportRows(registros = [], { req } = {}) {
   const rows = [];
 
   registros.forEach((registro) => {
@@ -1247,6 +1513,7 @@ function mapRegistroExportRows(registros = []) {
 
     detalles.forEach((detail, index) => {
       rows.push({
+        id: Number(registro.id || 0),
         fecha: registro.fecha ? new Date(registro.fecha) : null,
         zona: registro.zona || getZonaFromCityName(registro.ciudad_nombre),
         ciudad: registro.ciudad_nombre || '',
@@ -1268,6 +1535,7 @@ function mapRegistroExportRows(registros = []) {
         estado: registro.estado || '',
         registrado_por: registro.registrado_por || '',
         observaciones: registro.observaciones || '',
+        foto_guia: buildFotoGuiaCellValue(req, registro.foto_guia),
       });
     });
   });
@@ -1276,6 +1544,10 @@ function mapRegistroExportRows(registros = []) {
 }
 
 function buildStockReportMovementLabel(row, delta) {
+  if (String(row.tipo_movimiento || '').toUpperCase() === 'STOCK_INITIAL') {
+    return 'CARGA STOCK INICIAL';
+  }
+
   const accion = String(row.accion || '').trim().toUpperCase();
   const indicador = String(row.indicador_nombre || '').trim().toUpperCase();
   const direction = delta >= 0 ? 'INGRESO' : 'SALIDA';
@@ -1305,6 +1577,143 @@ function isBeforeDate(date, isoDate) {
 function isAfterDate(date, isoDate) {
   if (!date || !isoDate) return false;
   return date > new Date(`${isoDate}T23:59:59.999`);
+}
+
+function normalizeAuditFilterText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function matchesAuditFilter(values = [], term = '') {
+  const normalizedTerm = normalizeAuditFilterText(term);
+  if (!normalizedTerm) return true;
+
+  const haystack = values
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(normalizedTerm);
+}
+
+function buildStockInitialReportMovements(auditRows = [], {
+  categoriaId = null,
+  requestedWarehouseId = null,
+  scopedWarehouseIds = [],
+} = {}) {
+  const scopedWarehouseSet = Array.isArray(scopedWarehouseIds) && scopedWarehouseIds.length
+    ? new Set(scopedWarehouseIds.map((id) => Number(id)))
+    : null;
+
+  return auditRows
+    .map((auditRow) => {
+      const detail = parseAuditDetail(auditRow.detalle);
+      if (!detail) return null;
+
+      const cantidad = Number(detail.cantidad || 0);
+      const almacenId = parsePositiveInt(detail.almacen_id);
+      const skuId = parsePositiveInt(detail.sku_id);
+      const loteId = parsePositiveInt(detail.lote_id) || null;
+      const detailCategoriaId = parsePositiveInt(detail.categoria_id);
+
+      if (!cantidad || !almacenId || !skuId) {
+        return null;
+      }
+      if (categoriaId && detailCategoriaId !== categoriaId) {
+        return null;
+      }
+      if (requestedWarehouseId && almacenId !== requestedWarehouseId) {
+        return null;
+      }
+      if (scopedWarehouseSet && !scopedWarehouseSet.has(almacenId)) {
+        return null;
+      }
+
+      return {
+        id: `audit-${auditRow.id}`,
+        movimiento_fecha: auditRow.created_at,
+        tipo_movimiento: 'STOCK_INITIAL',
+        cantidad,
+        almacen_origen_id: null,
+        almacen_destino_id: almacenId,
+        sku_id: skuId,
+        lote_id: loteId,
+        accion: 'STOCK INICIAL',
+        tipo_accion: 'ENTRADA',
+        indicador_nombre: 'STOCK INICIAL',
+        sku_codigo: String(detail.sku_codigo || ''),
+        sku_nombre: String(detail.sku_nombre || ''),
+        categoria_nombre: String(detail.categoria_nombre || ''),
+        tipo_mercaderia_nombre: String(detail.tipo_mercaderia_nombre || ''),
+        codigo_lote: String(detail.codigo_lote || ''),
+        lote_fecha_vencimiento: detail.fecha_vencimiento || null,
+        almacen_origen_nombre: '',
+        almacen_destino_nombre: String(detail.almacen_nombre || ''),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildStockInitialAuditRows(auditRows = [], {
+  requestedWarehouseId = null,
+  scopedWarehouseIds = [],
+  qUsuario = '',
+  qAlmacen = '',
+  qSku = '',
+} = {}) {
+  const scopedWarehouseSet = Array.isArray(scopedWarehouseIds) && scopedWarehouseIds.length
+    ? new Set(scopedWarehouseIds.map((id) => Number(id)))
+    : null;
+
+  return auditRows
+    .map((auditRow) => {
+      const detail = parseAuditDetail(auditRow.detalle);
+      if (!detail) return null;
+
+      const almacenId = parsePositiveInt(detail.almacen_id);
+      if (!almacenId) return null;
+      if (requestedWarehouseId && almacenId !== requestedWarehouseId) return null;
+      if (scopedWarehouseSet && !scopedWarehouseSet.has(almacenId)) return null;
+
+      const usuarioNombre = [auditRow.usuario_nombre, auditRow.usuario_apellido]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        || 'Sistema';
+
+      const row = {
+        fecha: auditRow.created_at ? new Date(auditRow.created_at) : null,
+        usuario: usuarioNombre,
+        email: auditRow.usuario_email || '',
+        rol: auditRow.usuario_rol || '',
+        almacen: detail.almacen_nombre || '',
+        ciudad: detail.ciudad_nombre || '',
+        zona: detail.zona || '',
+        categoria: detail.categoria_nombre || '',
+        tipo_mercaderia: detail.tipo_mercaderia_nombre || '',
+        sku_codigo: detail.sku_codigo || '',
+        sku: detail.sku_nombre || '',
+        lote: detail.codigo_lote || 'SIN LOTE',
+        fecha_vencimiento: detail.fecha_vencimiento ? new Date(detail.fecha_vencimiento) : null,
+        cantidad_cargada: Number(detail.cantidad || 0),
+        stock_anterior: Number(detail.stock_anterior || 0),
+        stock_actual: Number(detail.stock_actual || 0),
+        observaciones: detail.observaciones || '',
+        ip: auditRow.ip || '',
+      };
+
+      if (!matchesAuditFilter([row.usuario, row.email, row.rol], qUsuario)) return null;
+      if (!matchesAuditFilter([row.almacen, row.ciudad, row.zona], qAlmacen)) return null;
+      if (!matchesAuditFilter([row.sku, row.sku_codigo, row.categoria, row.tipo_mercaderia], qSku)) return null;
+
+      return row;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftDate = left.fecha?.getTime() || 0;
+      const rightDate = right.fecha?.getTime() || 0;
+      return rightDate - leftDate;
+    });
 }
 
 function buildStockReportRows(movements = [], { fechaIni = '', fechaFin = '', warehouseScopeIds = [] } = {}) {
@@ -1490,7 +1899,6 @@ router.get('/export/lotes/excel', requireRol('superadmin', 'admin', 'supervisor'
 router.get('/export/excel', requireRol('superadmin', 'admin', 'supervisor'), async (req, res) => {
   try {
     const { rows } = await fetchRegistroRows(pool, req, { paginate: false });
-    const exportRows = mapRegistroExportRows(rows);
     const estadoBase = String(req.query.estado || '').toLowerCase();
     const exportName = estadoBase === 'en_transito'
       ? 'guias_en_camino'
@@ -1506,6 +1914,7 @@ router.get('/export/excel', requireRol('superadmin', 'admin', 'supervisor'), asy
           ? 'Aprobacion Ingresos'
           : 'Registros',
       columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
         { header: 'FECHA', key: 'fecha', width: 14, type: 'date' },
         { header: 'ZONA', key: 'zona', width: 14 },
         { header: 'CIUDAD', key: 'ciudad', width: 18 },
@@ -1527,8 +1936,9 @@ router.get('/export/excel', requireRol('superadmin', 'admin', 'supervisor'), asy
         { header: 'ESTADO', key: 'estado', width: 16 },
         { header: 'REGISTRADO POR', key: 'registrado_por', width: 24 },
         { header: 'OBSERVACION', key: 'observaciones', width: 34 },
+        { header: 'FOTO GUIA', key: 'foto_guia', width: 24, type: 'link' },
       ],
-      rows: exportRows,
+      rows: mapRegistroExportRows(rows, { req }),
     });
   } catch (err) {
     console.error(err);
@@ -1610,12 +2020,40 @@ router.get('/export/stock/excel', requireRol('superadmin', 'admin', 'supervisor'
 
     query += ' ORDER BY sm.created_at, sm.id';
 
-    const [movements] = await pool.query(query, params);
+    const [stockMovements] = await pool.query(query, params);
+
+    let stockInitialQuery = `SELECT id, created_at, detalle
+                             FROM audit_log
+                             WHERE accion='STOCK_INITIAL' AND tabla='stock_almacen'`;
+    const stockInitialParams = [];
+    if (req.empresa_id) {
+      stockInitialQuery += ' AND empresa_id=?';
+      stockInitialParams.push(req.empresa_id);
+    }
+    if (fechaFin) {
+      stockInitialQuery += ' AND DATE(created_at) <= ?';
+      stockInitialParams.push(fechaFin);
+    }
+    stockInitialQuery += ' ORDER BY created_at, id';
+
+    const [stockInitialAuditRows] = await pool.query(stockInitialQuery, stockInitialParams);
     const effectiveWarehouseScopeIds = requestedWarehouseId
       ? scopedWarehouseIds.length
         ? scopedWarehouseIds.filter((id) => Number(id) === requestedWarehouseId)
         : [requestedWarehouseId]
       : scopedWarehouseIds;
+
+    const stockInitialMovements = buildStockInitialReportMovements(stockInitialAuditRows, {
+      categoriaId,
+      requestedWarehouseId,
+      scopedWarehouseIds,
+    });
+    const movements = [...stockMovements, ...stockInitialMovements].sort((left, right) => {
+      const leftDate = toMovementDateTime(left.movimiento_fecha)?.getTime() || 0;
+      const rightDate = toMovementDateTime(right.movimiento_fecha)?.getTime() || 0;
+      if (leftDate !== rightDate) return leftDate - rightDate;
+      return String(left.id || '').localeCompare(String(right.id || ''));
+    });
 
     const { rows, movementLabels } = buildStockReportRows(movements, {
       fechaIni,
@@ -1631,7 +2069,7 @@ router.get('/export/stock/excel', requireRol('superadmin', 'admin', 'supervisor'
       { header: 'SKU', key: 'sku', width: 34 },
       { header: 'LOTE', key: 'lote', width: 18 },
       { header: 'FECHA VENCIMIENTO', key: 'fecha_vencimiento', width: 18, type: 'date' },
-      { header: 'STOCK INICIAL', key: 'stock_inicial', width: 14, type: 'number' },
+      { header: 'SALDO INICIAL', key: 'stock_inicial', width: 14, type: 'number' },
       ...movementLabels.map((label) => ({
         header: label,
         key: label,
@@ -1656,6 +2094,208 @@ router.get('/export/stock/excel', requireRol('superadmin', 'admin', 'supervisor'
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, mensaje: 'Error al exportar el reporte de stock' });
+  }
+});
+
+router.get('/export/stock-inicial/excel', requireRol('superadmin', 'admin', 'supervisor'), async (req, res) => {
+  try {
+    const fechaIni = String(req.query.fecha_ini || '').trim();
+    const fechaFin = String(req.query.fecha_fin || '').trim();
+    const requestedWarehouseId = parsePositiveInt(req.query.almacen_id);
+    const qUsuario = String(req.query.q_usuario || req.query.q_registrado_por || '').trim();
+    const qAlmacen = [
+      req.query.q_almacen,
+      req.query.q_almacen_origen,
+      req.query.q_almacen_destino,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const qSku = String(req.query.q_sku || '').trim();
+
+    if (fechaIni && !isValidDateInput(fechaIni)) {
+      return sendBadRequest(res, 'Fecha inicial invalida');
+    }
+    if (fechaFin && !isValidDateInput(fechaFin)) {
+      return sendBadRequest(res, 'Fecha final invalida');
+    }
+
+    let query = `SELECT
+        a.id,
+        a.created_at,
+        a.detalle,
+        a.ip,
+        u.nombre AS usuario_nombre,
+        u.apellido AS usuario_apellido,
+        u.email AS usuario_email,
+        u.rol AS usuario_rol
+      FROM audit_log a
+      LEFT JOIN usuarios u ON u.id = a.usuario_id
+      WHERE a.accion='STOCK_INITIAL' AND a.tabla='stock_almacen'`;
+    const params = [];
+
+    if (req.empresa_id) {
+      query += ' AND a.empresa_id=?';
+      params.push(req.empresa_id);
+    }
+    if (fechaIni) {
+      query += ' AND DATE(a.created_at) >= ?';
+      params.push(fechaIni);
+    }
+    if (fechaFin) {
+      query += ' AND DATE(a.created_at) <= ?';
+      params.push(fechaFin);
+    }
+
+    query += ' ORDER BY a.created_at DESC, a.id DESC';
+
+    const [auditRows] = await pool.query(query, params);
+    const scopedWarehouseIds = ['almacenero', 'supervisor'].includes(req.usuario.rol)
+      ? await getAssignedWarehouseIds(req.usuario.id, pool)
+      : [];
+    const rows = buildStockInitialAuditRows(auditRows, {
+      requestedWarehouseId,
+      scopedWarehouseIds,
+      qUsuario,
+      qAlmacen,
+      qSku,
+    });
+
+    await sendExcelWorkbook(res, {
+      fileName: `zentra_stock_inicial_${Date.now()}`,
+      sheetName: 'Stock Inicial',
+      columns: [
+        { header: 'FECHA', key: 'fecha', width: 18, type: 'datetime' },
+        { header: 'USUARIO', key: 'usuario', width: 26 },
+        { header: 'EMAIL', key: 'email', width: 30 },
+        { header: 'ROL', key: 'rol', width: 16 },
+        { header: 'ALMACEN', key: 'almacen', width: 24 },
+        { header: 'CIUDAD', key: 'ciudad', width: 18 },
+        { header: 'ZONA', key: 'zona', width: 14 },
+        { header: 'CATEGORIA', key: 'categoria', width: 18 },
+        { header: 'TIPO MERCADERIA', key: 'tipo_mercaderia', width: 22 },
+        { header: 'COD. SKU', key: 'sku_codigo', width: 14 },
+        { header: 'SKU', key: 'sku', width: 34 },
+        { header: 'LOTE', key: 'lote', width: 18 },
+        { header: 'FECHA VENCIMIENTO', key: 'fecha_vencimiento', width: 18, type: 'date' },
+        { header: 'CANTIDAD CARGADA', key: 'cantidad_cargada', width: 18, type: 'number' },
+        { header: 'STOCK ANTERIOR', key: 'stock_anterior', width: 16, type: 'number' },
+        { header: 'STOCK ACTUAL', key: 'stock_actual', width: 16, type: 'number' },
+        { header: 'OBSERVACIONES', key: 'observaciones', width: 34 },
+        { header: 'IP', key: 'ip', width: 18 },
+      ],
+      rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, mensaje: 'Error al exportar el reporte de stock inicial' });
+  }
+});
+
+router.post('/stock-inicial', requireRol('superadmin', 'admin', 'almacenero'), async (req, res) => {
+  const connection = await pool.getConnection();
+
+  try {
+    const validated = await validateStockInitializationPayload(connection, req, req.body || {});
+
+    await connection.beginTransaction();
+
+    let loteId = validated.lote_id;
+    if (validated.sku_maneja_lote && validated.should_create_lote) {
+      const [result] = await connection.query(
+        `INSERT INTO lotes (sku_id, codigo_lote, fecha_vencimiento, activo)
+         VALUES (?,?,?,1)`,
+        [validated.sku_id, validated.codigo_lote, validated.fecha_vencimiento || null]
+      );
+      loteId = result.insertId;
+    } else if (validated.sku_maneja_lote && validated.should_reactivate_lote && loteId) {
+      await connection.query(
+        `UPDATE lotes
+         SET activo=1,
+             fecha_vencimiento=COALESCE(fecha_vencimiento, ?)
+         WHERE id=?`,
+        [validated.fecha_vencimiento || null, loteId]
+      );
+    }
+
+    if (validated.sku_maneja_lote && validated.should_update_lote_fecha && loteId) {
+      await connection.query(
+        'UPDATE lotes SET fecha_vencimiento=? WHERE id=? AND (fecha_vencimiento IS NULL OR fecha_vencimiento="")',
+        [validated.fecha_vencimiento, loteId]
+      );
+    }
+
+    const stockAnterior = await getCurrentStockAmount(connection, {
+      empresa_id: req.empresa_id,
+      almacen_id: validated.almacen_id,
+      sku_id: validated.sku_id,
+      lote_id: loteId,
+    });
+
+    await upsertStock(connection, {
+      empresa_id: req.empresa_id,
+      almacen_id: validated.almacen_id,
+      sku_id: validated.sku_id,
+      lote_id: loteId,
+      cantidad: validated.cantidad,
+    });
+
+    const stockActual = await getCurrentStockAmount(connection, {
+      empresa_id: req.empresa_id,
+      almacen_id: validated.almacen_id,
+      sku_id: validated.sku_id,
+      lote_id: loteId,
+    });
+
+    await insertAuditLog(connection, {
+      empresa_id: req.empresa_id,
+      usuario_id: req.usuario.id,
+      accion: 'STOCK_INITIAL',
+      tabla: 'stock_almacen',
+      registro_id: null,
+      detalle: {
+        summary: 'Registro stock inicial',
+        almacen_id: validated.almacen_id,
+        almacen_nombre: validated.almacen_nombre,
+        ciudad_id: validated.ciudad_id,
+        ciudad_nombre: validated.ciudad_nombre,
+        zona: validated.zona,
+        categoria_id: validated.categoria_id,
+        categoria_nombre: validated.categoria_nombre,
+        tipo_mercaderia_id: validated.tipo_mercaderia_id,
+        tipo_mercaderia_nombre: validated.tipo_mercaderia_nombre,
+        sku_id: validated.sku_id,
+        sku_nombre: validated.sku_nombre,
+        sku_codigo: validated.sku_codigo,
+        lote_id: loteId,
+        codigo_lote: validated.codigo_lote,
+        fecha_vencimiento: validated.fecha_vencimiento,
+        cantidad: validated.cantidad,
+        stock_anterior: stockAnterior,
+        stock_actual: stockActual,
+        observaciones: validated.observaciones,
+      },
+      ip: req.ip,
+    });
+
+    await connection.commit();
+    res.status(201).json({
+      ok: true,
+      mensaje: 'Stock inicial registrado',
+      datos: {
+        almacen_id: validated.almacen_id,
+        sku_id: validated.sku_id,
+        lote_id: loteId,
+        cantidad: validated.cantidad,
+        stock_actual: stockActual,
+      },
+    });
+  } catch (err) {
+    await connection.rollback();
+    console.error(err);
+    res.status(err.statusCode || 400).json({ ok: false, mensaje: err.message || 'No se pudo registrar el stock inicial' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -1690,6 +2330,7 @@ router.get('/:id/export/excel', async (req, res) => {
       fileName: `zentra_registro_${registro.id}_${Date.now()}`,
       sheetName: `Registro ${registro.id}`,
       columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
         { header: 'FECHA', key: 'fecha', width: 14, type: 'date' },
         { header: 'ZONA', key: 'zona', width: 14 },
         { header: 'CIUDAD', key: 'ciudad', width: 18 },
@@ -1711,8 +2352,9 @@ router.get('/:id/export/excel', async (req, res) => {
         { header: 'ESTADO', key: 'estado', width: 16 },
         { header: 'REGISTRADO POR', key: 'registrado_por', width: 24 },
         { header: 'OBSERVACION', key: 'observaciones', width: 34 },
+        { header: 'FOTO GUIA', key: 'foto_guia', width: 24, type: 'link' },
       ],
-      rows: mapRegistroExportRows([registro]),
+      rows: mapRegistroExportRows([registro], { req }),
     });
   } catch (err) {
     console.error(err);

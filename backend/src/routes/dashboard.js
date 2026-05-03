@@ -6,6 +6,16 @@ const { getAssignedWarehouseIds, getWarehouseScope } = require('../utils/warehou
 const router = express.Router();
 router.use(authMiddleware, empresaMiddleware);
 
+const LOW_STOCK_CRITICAL_THRESHOLD = 100;
+const LOW_STOCK_WARNING_THRESHOLD = 200;
+const DETAIL_COUNT_EXPR = 'COALESCE((SELECT COUNT(*) FROM registro_detalles rd_count WHERE rd_count.registro_id = r.id), 0)';
+const PRIMARY_SKU_EXPR = `COALESCE((
+  SELECT MIN(sk_detail.nombre)
+  FROM registro_detalles rd_sku
+  JOIN skus sk_detail ON sk_detail.id = rd_sku.sku_id
+  WHERE rd_sku.registro_id = r.id
+), sk.nombre, '')`;
+
 router.get('/resumen', async (req, res) => {
   try {
     const eid = req.empresa_id;
@@ -57,6 +67,35 @@ router.get('/resumen', async (req, res) => {
       scopedParams
     );
 
+    const [transitoRaw] = await pool.query(
+      `SELECT
+        r.id,
+        r.fecha,
+        r.nro_guia,
+        ao.nombre AS almacen_origen,
+        ad.nombre AS almacen_destino,
+        ${PRIMARY_SKU_EXPR} AS sku_principal_nombre,
+        GREATEST(${DETAIL_COUNT_EXPR}, 1) AS detalles_count
+       FROM registros r
+       LEFT JOIN almacenes ao ON ao.id = r.almacen_origen_id
+       LEFT JOIN almacenes ad ON ad.id = r.almacen_destino_id
+       LEFT JOIN skus sk ON sk.id = r.sku_id
+       ${whereRegistros} AND r.estado='en_transito'
+       ORDER BY r.fecha DESC, r.id DESC
+       LIMIT 20`,
+      scopedParams
+    );
+
+    const transito = transitoRaw.map((row) => {
+      const totalDetalles = Number(row.detalles_count || 1);
+      const skuPrincipal = row.sku_principal_nombre || '-';
+      return {
+        ...row,
+        detalles_count: totalDetalles,
+        sku_resumen: totalDetalles > 1 ? `${skuPrincipal} +${totalDetalles - 1} más` : skuPrincipal,
+      };
+    });
+
     const scopedStockIds = ['almacenero', 'supervisor'].includes(req.usuario.rol)
       ? await getAssignedWarehouseIds(req.usuario.id)
       : [];
@@ -97,6 +136,40 @@ router.get('/resumen', async (req, res) => {
       stockParams
     );
 
+    const [stockAlertRows] = await pool.query(
+      `SELECT
+        sa.almacen_id,
+        sa.sku_id,
+        ao.nombre AS almacen,
+        sk.nombre AS sku,
+        SUM(sa.cantidad) AS cantidad
+       FROM stock_almacen sa
+       JOIN skus sk ON sk.id = sa.sku_id
+       JOIN almacenes ao ON ao.id = sa.almacen_id
+       WHERE ${stockWhere}
+       GROUP BY sa.almacen_id, sa.sku_id, ao.nombre, sk.nombre
+       HAVING SUM(sa.cantidad) <= ?
+       ORDER BY cantidad ASC, sk.nombre ASC
+       LIMIT 40`,
+      [...stockParams, LOW_STOCK_WARNING_THRESHOLD]
+    );
+
+    const stock_critico = [];
+    const stock_bajo = [];
+
+    stockAlertRows.forEach((item) => {
+      const normalizedItem = {
+        ...item,
+        cantidad: Number(item.cantidad || 0),
+      };
+
+      if (normalizedItem.cantidad <= LOW_STOCK_CRITICAL_THRESHOLD) {
+        stock_critico.push(normalizedItem);
+      } else {
+        stock_bajo.push(normalizedItem);
+      }
+    });
+
     res.json({
       ok: true,
       datos: {
@@ -104,8 +177,15 @@ router.get('/resumen', async (req, res) => {
         por_categoria,
         por_mes,
         alertas: {
+          transito,
           vencimientos_proximos: vencimientos,
           vencidos,
+          stock_critico,
+          stock_bajo,
+          stock_limites: {
+            critico: LOW_STOCK_CRITICAL_THRESHOLD,
+            bajo: LOW_STOCK_WARNING_THRESHOLD,
+          },
         },
       },
     });

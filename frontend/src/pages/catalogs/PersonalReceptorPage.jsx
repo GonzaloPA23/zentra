@@ -118,7 +118,7 @@ export default function PersonalReceptorPage() {
       title="Personal Receptor"
       subtitle="Personas que pueden recibir mercadería"
       endpoint="/catalogos/personal-receptor"
-      queryKey={['personal-receptor']}
+      queryKey={['personal-receptor', 'catalogo']}
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Nombre', accessor: 'nombre', searchable: true },

@@ -46,6 +46,21 @@ function AlertRow({ item, tipo }) {
   );
 }
 
+function StockAlertRow({ item, tipo }) {
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-lg text-sm ${tipo === 'critico' ? 'bg-red-50' : 'bg-yellow-50'}`}>
+      <AlertTriangle size={15} className={tipo === 'critico' ? 'text-red-500' : 'text-yellow-500'} />
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-gray-900 truncate">{item.sku}</p>
+        <p className="text-xs text-gray-500">{item.almacen} · Stock: {item.cantidad}</p>
+      </div>
+      <span className={`text-xs font-semibold ${tipo === 'critico' ? 'text-red-600' : 'text-yellow-600'}`}>
+        {tipo === 'critico' ? 'CRITICO' : 'BAJO'}
+      </span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { usuario } = useAuth();
   const { data, isLoading } = useQuery({
@@ -65,6 +80,9 @@ export default function DashboardPage() {
     vencimientos_proximos: Array.isArray(data?.alertas?.vencimientos_proximos)
       ? data.alertas.vencimientos_proximos
       : [],
+    stock_critico: Array.isArray(data?.alertas?.stock_critico) ? data.alertas.stock_critico : [],
+    stock_bajo: Array.isArray(data?.alertas?.stock_bajo) ? data.alertas.stock_bajo : [],
+    stock_limites: data?.alertas?.stock_limites ?? { critico: 100, bajo: 200 },
   };
 
   return (
@@ -158,6 +176,35 @@ export default function DashboardPage() {
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {alertas.vencimientos_proximos.map((item) => (
                   <AlertRow key={item.id} item={item} tipo="proximo" />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(alertas.stock_critico.length > 0 || alertas.stock_bajo.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {alertas.stock_critico.length > 0 && (
+            <div className="card border-red-200">
+              <h3 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
+                <AlertTriangle size={16} /> Stock Crítico ({"<="} {alertas.stock_limites.critico} Und)
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {alertas.stock_critico.map((item) => (
+                  <StockAlertRow key={`${item.almacen_id}-${item.sku_id}`} item={item} tipo="critico" />
+                ))}
+              </div>
+            </div>
+          )}
+          {alertas.stock_bajo.length > 0 && (
+            <div className="card border-yellow-200">
+              <h3 className="font-semibold text-yellow-700 mb-3 flex items-center gap-2">
+                <AlertTriangle size={16} /> Stock Bajo ({"<="} {alertas.stock_limites.bajo} Und)
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {alertas.stock_bajo.map((item) => (
+                  <StockAlertRow key={`${item.almacen_id}-${item.sku_id}`} item={item} tipo="bajo" />
                 ))}
               </div>
             </div>

@@ -5,7 +5,8 @@ import api, { getMensajeError } from "../utils/api";
 import DataTable from "./DataTable";
 import Modal from "./Modal";
 import ConfirmDialog from "./ConfirmDialog";
-import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { FileSpreadsheet, Plus, Pencil, Trash2 } from "lucide-react";
+import { downloadBlobResponse, getBlobErrorMessage } from "../utils/download";
 
 /**
  * GenericCatalogPage
@@ -32,16 +33,24 @@ export default function GenericCatalogPage({
   const [modal, setModal] = useState(null); // null | 'create' | 'edit'
   const [selected, setSelected] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const baseQueryKey = Array.isArray(queryKey) && queryKey.length ? [queryKey[0]] : queryKey;
+  const exportFileName = `catalogo_${String(title || 'datos')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'datos'}.xlsx`;
 
   const { data, isLoading } = useQuery({
     queryKey,
-    queryFn: () => api.get(endpoint).then((r) => r.data.datos),
+    queryFn: () => api.get(`${endpoint}?incluir_inactivos=1`).then((r) => r.data.datos),
   });
 
   const mutCreate = useMutation({
     mutationFn: (d) => api.post(endpoint, buildPayload(d)),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: baseQueryKey });
       toast.success("Registro creado");
       closeModal();
     },
@@ -51,7 +60,7 @@ export default function GenericCatalogPage({
   const mutUpdate = useMutation({
     mutationFn: (d) => api.put(`${endpoint}/${selected.id}`, buildPayload(d)),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: baseQueryKey });
       toast.success("Registro actualizado");
       closeModal();
     },
@@ -61,7 +70,7 @@ export default function GenericCatalogPage({
   const mutDelete = useMutation({
     mutationFn: () => api.delete(`${endpoint}/${deleting.id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: baseQueryKey });
       toast.success("Registro eliminado");
       setDeleting(null);
     },
@@ -87,6 +96,20 @@ export default function GenericCatalogPage({
   const handleSubmit = (data) => {
     if (modal === "create") mutCreate.mutate(data);
     else mutUpdate.mutate(data);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get(`${endpoint}/export/excel?incluir_inactivos=1`, {
+        responseType: "blob",
+      });
+      downloadBlobResponse(response, exportFileName);
+    } catch (error) {
+      toast.error(await getBlobErrorMessage(error, "No se pudo exportar el catálogo"));
+    } finally {
+      setExporting(false);
+    }
   };
 
   const allColumns = [
@@ -138,9 +161,14 @@ export default function GenericCatalogPage({
         loading={isLoading}
         searchPlaceholder={`Buscar en ${title.toLowerCase()}...`}
         actions={
-          <button className="btn-primary btn-sm" onClick={openCreate}>
-            <Plus size={14} /> Nuevo
-          </button>
+          <>
+            <button className="btn-secondary btn-sm" onClick={handleExport} disabled={exporting}>
+              <FileSpreadsheet size={14} /> {exporting ? "Exportando..." : "Exportar Excel"}
+            </button>
+            <button className="btn-primary btn-sm" onClick={openCreate}>
+              <Plus size={14} /> Nuevo
+            </button>
+          </>
         }
       />
 

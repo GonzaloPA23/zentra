@@ -205,7 +205,7 @@ function LotesManagerModal({ sku, open, onClose }) {
   const queryClient = useQueryClient();
   const [editingLote, setEditingLote] = useState(null);
   const [deletingLote, setDeletingLote] = useState(null);
-  const lotesQueryKey = ['sku-lotes', String(sku?.id || '')];
+  const lotesQueryKey = ['sku-lotes', 'catalogo', String(sku?.id || '')];
 
   const {
     data: lotes = [],
@@ -215,7 +215,7 @@ function LotesManagerModal({ sku, open, onClose }) {
     refetch,
   } = useQuery({
     queryKey: lotesQueryKey,
-    queryFn: () => api.get(`/catalogos/lotes?sku_id=${sku.id}`).then((response) => response.data.datos),
+    queryFn: () => api.get(`/catalogos/lotes?sku_id=${sku.id}&incluir_inactivos=1`).then((response) => response.data.datos),
     enabled: open && !!sku?.id,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -410,7 +410,7 @@ export default function SkusPage() {
         title="SKUs"
         subtitle="Catálogo de productos/materiales por categoría"
         endpoint="/catalogos/skus"
-        queryKey={['skus']}
+        queryKey={['skus', 'catalogo']}
         columns={columns}
         FormComponent={SkuForm}
       />

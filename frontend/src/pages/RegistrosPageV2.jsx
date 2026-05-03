@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -10,15 +11,19 @@ import {
   Download,
   Eye,
   FileSpreadsheet,
+  Loader2,
   Pencil,
   Plus,
+  Save,
   Trash2,
 } from 'lucide-react';
 import api, { getMensajeError } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Modal from '../components/Modal';
+import SearchableSelect from '../components/SearchableSelect';
 import SortableFilterHeader from '../components/SortableFilterHeader';
-import { formatSafeDate } from '../utils/date';
+import { formatSafeDate, toSafeDateInputValue } from '../utils/date';
 import { downloadBlobResponse, getBlobErrorMessage } from '../utils/download';
 
 const ESTADOS = {
@@ -51,6 +56,32 @@ const EMPTY_FILTERS = {
   page: 1,
 };
 
+const STOCK_INICIAL_DEFAULTS = {
+  almacen_id: '',
+  categoria_id: '',
+  sku_id: '',
+  lote_id: '',
+  codigo_lote: '',
+  fecha_vencimiento: '',
+  cantidad: '',
+  observaciones: '',
+};
+
+const NUEVO_LOTE_OPTION = '__nuevo__';
+
+function buildSearchOptions(rows = [], labelBuilder, searchBuilder) {
+  return rows.map((row) => ({
+    value: String(row.id),
+    label: labelBuilder(row),
+    searchText: searchBuilder ? searchBuilder(row) : labelBuilder(row),
+    raw: row,
+  }));
+}
+
+function parseFlag(value) {
+  return value === true || value === 1 || value === '1';
+}
+
 function nextSortState(current, key) {
   if (current.sort_by === key) {
     return { sort_by: key, sort_dir: current.sort_dir === 'asc' ? 'desc' : 'asc' };
@@ -59,12 +90,387 @@ function nextSortState(current, key) {
   return { sort_by: key, sort_dir: key === 'fecha' ? 'desc' : 'asc' };
 }
 
+function StockInicialModal({ open, onClose, onSaved }) {
+  const {
+    control,
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    clearErrors,
+    formState: { errors },
+  } = useForm({
+    defaultValues: STOCK_INICIAL_DEFAULTS,
+  });
+
+  const almacenId = useWatch({ control, name: 'almacen_id' });
+  const categoriaId = useWatch({ control, name: 'categoria_id' });
+  const skuId = useWatch({ control, name: 'sku_id' });
+  const loteId = useWatch({ control, name: 'lote_id' });
+  const codigoLote = useWatch({ control, name: 'codigo_lote' });
+
+  const { data: almacenes = [] } = useQuery({
+    queryKey: ['stock-inicial-almacenes'],
+    queryFn: () => api.get('/catalogos/almacenes').then((response) => response.data.datos),
+    enabled: open,
+  });
+  const { data: categorias = [] } = useQuery({
+    queryKey: ['categorias'],
+    queryFn: () => api.get('/catalogos/categorias').then((response) => response.data.datos),
+    enabled: open,
+  });
+
+  const almacenSeleccionado = useMemo(
+    () => almacenes.find((almacen) => String(almacen.id) === String(almacenId)),
+    [almacenId, almacenes]
+  );
+  const zona = almacenSeleccionado?.zona || '';
+
+  const { data: skus = [] } = useQuery({
+    queryKey: ['stock-inicial-skus', categoriaId || '', zona || ''],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        categoria_id: categoriaId,
+        zona,
+      });
+      return api.get(`/catalogos/skus?${params.toString()}`).then((response) => response.data.datos);
+    },
+    enabled: open && !!categoriaId && !!zona,
+  });
+
+  const skuSeleccionado = useMemo(
+    () => skus.find((sku) => String(sku.id) === String(skuId)),
+    [skuId, skus]
+  );
+  const skuManejaLote = parseFlag(skuSeleccionado?.tiene_lote);
+  const skuManejaVencimiento = parseFlag(skuSeleccionado?.tiene_vencimiento);
+
+  const {
+    data: lotes = [],
+    isFetching: loadingLotes,
+    isError: lotesQueryFailed,
+    error: lotesQueryError,
+  } = useQuery({
+    queryKey: ['stock-inicial-lotes', skuId || ''],
+    queryFn: () => api.get(`/catalogos/lotes?sku_id=${skuId}`).then((response) => response.data.datos),
+    enabled: open && !!skuId && skuManejaLote,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+  });
+
+  const loteSeleccionado = useMemo(
+    () => lotes.find((lote) => String(lote.id) === String(loteId)),
+    [loteId, lotes]
+  );
+  const hasSelectedExistingLote = !!loteId && loteId !== NUEVO_LOTE_OPTION;
+  const fechaBloqueada = !!loteSeleccionado?.fecha_vencimiento;
+
+  const stockInicialMutation = useMutation({
+    mutationFn: (payload) => api.post('/registros/stock-inicial', payload),
+  });
+
+  useEffect(() => {
+    if (!open) {
+      reset(STOCK_INICIAL_DEFAULTS);
+      stockInicialMutation.reset();
+    }
+  }, [open, reset, stockInicialMutation]);
+
+  useEffect(() => {
+    setValue('sku_id', '');
+    setValue('lote_id', '');
+    setValue('codigo_lote', '');
+    setValue('fecha_vencimiento', '');
+  }, [almacenId, setValue]);
+
+  useEffect(() => {
+    setValue('sku_id', '');
+    setValue('lote_id', '');
+    setValue('codigo_lote', '');
+    setValue('fecha_vencimiento', '');
+  }, [categoriaId, setValue]);
+
+  useEffect(() => {
+    setValue('lote_id', '');
+    setValue('codigo_lote', '');
+    setValue('fecha_vencimiento', '');
+  }, [setValue, skuId]);
+
+  useEffect(() => {
+    if (!skuManejaLote) {
+      setValue('lote_id', '');
+      setValue('codigo_lote', '');
+      setValue('fecha_vencimiento', '');
+      clearErrors(['lote_id', 'fecha_vencimiento']);
+    }
+  }, [clearErrors, setValue, skuManejaLote]);
+
+  useEffect(() => {
+    if (loteSeleccionado?.fecha_vencimiento) {
+      setValue('fecha_vencimiento', toSafeDateInputValue(loteSeleccionado.fecha_vencimiento), {
+        shouldValidate: true,
+      });
+      clearErrors('fecha_vencimiento');
+      return;
+    }
+
+    if (loteId) {
+      setValue('fecha_vencimiento', '', { shouldValidate: true });
+    }
+  }, [clearErrors, loteId, loteSeleccionado?.fecha_vencimiento, setValue]);
+
+  const almacenesOptions = buildSearchOptions(
+    almacenes,
+    (almacen) => `${almacen.nombre} · ${almacen.ciudad_nombre || ''}`,
+    (almacen) => `${almacen.nombre} ${almacen.ciudad_nombre || ''} ${almacen.region_nombre || ''}`
+  );
+  const categoriaOptions = buildSearchOptions(
+    categorias,
+    (categoria) => categoria.nombre,
+    (categoria) => `${categoria.nombre} ${categoria.descripcion || ''}`
+  );
+  const skuOptions = buildSearchOptions(
+    skus,
+    (sku) => sku.codigo ? `${sku.nombre} (${sku.codigo})` : sku.nombre,
+    (sku) => `${sku.nombre} ${sku.codigo || ''} ${sku.unidad || ''}`
+  );
+  const loteOptions = buildSearchOptions(
+    [
+      { id: NUEVO_LOTE_OPTION, codigo_lote: 'Crear nuevo lote manualmente', fecha_vencimiento: null },
+      ...lotes,
+    ],
+    (lote) => lote.fecha_vencimiento
+      ? `${lote.codigo_lote} · vence ${toSafeDateInputValue(lote.fecha_vencimiento)}`
+      : lote.codigo_lote,
+    (lote) => `${lote.codigo_lote} ${lote.fecha_vencimiento || ''}`
+  );
+
+  const onSubmit = async (data) => {
+    try {
+      const response = await stockInicialMutation.mutateAsync({
+        almacen_id: data.almacen_id,
+        sku_id: data.sku_id,
+        lote_id: hasSelectedExistingLote ? data.lote_id : null,
+        codigo_lote: data.codigo_lote || null,
+        fecha_vencimiento: data.fecha_vencimiento || null,
+        cantidad: data.cantidad,
+        observaciones: data.observaciones || null,
+      });
+
+      const stockActual = Number(response.data?.datos?.stock_actual || 0);
+      toast.success(`Stock inicial registrado. Stock actual: ${stockActual.toLocaleString()}`);
+      onSaved?.();
+      onClose();
+    } catch (error) {
+      toast.error(getMensajeError(error));
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Cargar stock inicial" size="lg">
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <div className="modal-body space-y-4">
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Este ingreso suma stock directo al almacen elegido y deja trazabilidad en auditoria.
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="label">Almacen <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                control={control}
+                name="almacen_id"
+                rules={{ required: 'Requerido' }}
+                options={almacenesOptions}
+                placeholder="Seleccionar almacen..."
+                emptyText="Sin almacenes disponibles"
+                disabled={stockInicialMutation.isPending}
+              />
+              {errors.almacen_id && <p className="error-msg">{errors.almacen_id.message}</p>}
+            </div>
+
+            <div>
+              <label className="label">Categoria <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                control={control}
+                name="categoria_id"
+                rules={{ required: 'Requerido' }}
+                options={categoriaOptions}
+                placeholder="Seleccionar categoria..."
+                emptyText="Sin categorias disponibles"
+                disabled={stockInicialMutation.isPending}
+              />
+              {errors.categoria_id && <p className="error-msg">{errors.categoria_id.message}</p>}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="label">SKU <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                control={control}
+                name="sku_id"
+                rules={{ required: 'Requerido' }}
+                options={skuOptions}
+                placeholder={categoriaId ? 'Seleccionar SKU...' : 'Primero selecciona categoria'}
+                emptyText="Sin SKUs disponibles"
+                disabled={!categoriaId || !zona || stockInicialMutation.isPending}
+              />
+              {errors.sku_id && <p className="error-msg">{errors.sku_id.message}</p>}
+            </div>
+          </div>
+
+          {skuSeleccionado && (
+            <div className="flex flex-wrap gap-2">
+              <span className="badge-blue text-xs">
+                Zona: {zona || '-'}
+              </span>
+              {skuSeleccionado.codigo && (
+                <span className="badge-gray text-xs">
+                  Codigo: {skuSeleccionado.codigo}
+                </span>
+              )}
+              {skuManejaLote && (
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                  Maneja lote
+                </span>
+              )}
+            </div>
+          )}
+
+          {skuManejaLote && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="label">Lote existente</label>
+                <SearchableSelect
+                  control={control}
+                  name="lote_id"
+                  rules={{
+                    validate: (value) => (
+                      !skuManejaLote
+                      || (String(value || '').trim() && value !== NUEVO_LOTE_OPTION)
+                      || String(codigoLote || '').trim()
+                        ? true
+                        : 'Selecciona un lote o registra un nuevo codigo'
+                    ),
+                  }}
+                  options={loteOptions}
+                  placeholder={
+                    loadingLotes
+                      ? 'Cargando lotes...'
+                      : lotes.length
+                        ? `Seleccionar lote (${lotes.length})...`
+                        : 'Sin lotes creados'
+                  }
+                  emptyText={
+                    lotesQueryFailed
+                      ? getMensajeError(lotesQueryError)
+                      : 'Sin lotes disponibles'
+                  }
+                  disabled={!skuId || stockInicialMutation.isPending}
+                />
+                {errors.lote_id && <p className="error-msg">{errors.lote_id.message}</p>}
+              </div>
+
+              <div>
+                <label className="label">Nuevo codigo de lote</label>
+                <input
+                  className="input"
+                  placeholder="Escribe un codigo si el lote aun no existe"
+                  disabled={hasSelectedExistingLote || !skuId || stockInicialMutation.isPending}
+                  {...register('codigo_lote')}
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  Si no seleccionas un lote, este codigo se crea al guardar.
+                </p>
+              </div>
+
+              <div>
+                <label className="label">
+                  Fecha de vencimiento
+                  {skuManejaVencimiento && <span className="text-red-500"> *</span>}
+                </label>
+                <input
+                  type="date"
+                  className={`input ${errors.fecha_vencimiento ? 'input-error' : ''} ${fechaBloqueada ? 'cursor-not-allowed bg-gray-100 text-gray-500' : ''}`}
+                  readOnly={fechaBloqueada}
+                  disabled={stockInicialMutation.isPending}
+                  {...register('fecha_vencimiento', {
+                    validate: (value) => (
+                      !skuManejaVencimiento || loteSeleccionado?.fecha_vencimiento || String(value || '').trim()
+                        ? true
+                        : 'Requerido'
+                    ),
+                  })}
+                />
+                {skuManejaVencimiento && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Si el lote elegido ya tiene fecha, se completa automaticamente.
+                  </p>
+                )}
+                {errors.fecha_vencimiento && <p className="error-msg">{errors.fecha_vencimiento.message}</p>}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="label">Cantidad <span className="text-red-500">*</span></label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                className={`input ${errors.cantidad ? 'input-error' : ''}`}
+                placeholder="0.00"
+                {...register('cantidad', {
+                  required: 'Requerido',
+                  min: { value: 0.01, message: 'Debe ser mayor a 0' },
+                })}
+              />
+              {errors.cantidad && <p className="error-msg">{errors.cantidad.message}</p>}
+            </div>
+
+            <div>
+              <label className="label">Observaciones</label>
+              <input
+                className="input"
+                placeholder="Opcional"
+                {...register('observaciones')}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={stockInicialMutation.isPending}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={stockInicialMutation.isPending}>
+            {stockInicialMutation.isPending ? (
+              <>
+                <Loader2 size={14} className="animate-spin" /> Guardando...
+              </>
+            ) : (
+              <>
+                <Save size={14} /> Registrar stock inicial
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function DetalleExpandido({ row }) {
   return (
     <tr className="bg-blue-50/40">
-      <td colSpan={10} className="px-4 py-4">
+      <td colSpan={11} className="px-4 py-4">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
+            <div>
+              <span className="text-xs uppercase text-gray-500">ID registro</span>
+              <p className="font-medium text-gray-900">{row.id}</p>
+            </div>
             <div>
               <span className="text-xs uppercase text-gray-500">Acción</span>
               <p className="font-medium text-gray-900">{row.accion || '-'}</p>
@@ -161,6 +567,7 @@ function RegistroRow({ row, expanded, onToggle, canEdit, canDelete, onDelete, on
   return (
     <>
       <tr className="cursor-pointer" onClick={() => onToggle(row.id)}>
+        <td className="font-semibold text-gray-900">{row.id}</td>
         <td className="whitespace-nowrap">{formatSafeDate(row.fecha)}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_origen || ''}>{row.almacen_origen || '-'}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_destino || ''}>{row.almacen_destino || '-'}</td>
@@ -227,6 +634,7 @@ export default function RegistrosPageV2() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [expandedId, setExpandedId] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [stockInicialOpen, setStockInicialOpen] = useState(false);
 
   const canCreate = hasRole('superadmin', 'admin', 'almacenero');
   const canEdit = hasRole('superadmin', 'admin');
@@ -333,12 +741,24 @@ export default function RegistrosPageV2() {
               >
                 <FileSpreadsheet size={14} /> Reporte stock
               </button>
+              <button
+                type="button"
+                onClick={() => handleExport('/registros/export/stock-inicial/excel', `zentra_stock_inicial_${Date.now()}.xlsx`)}
+                className="btn-secondary btn-sm"
+              >
+                <FileSpreadsheet size={14} /> Reporte stock inicial
+              </button>
             </>
           )}
           {canCreate && (
-            <button type="button" onClick={() => navigate('/registros/nuevo')} className="btn-primary btn-sm">
-              <Plus size={14} /> Nuevo registro
-            </button>
+            <>
+              <button type="button" onClick={() => setStockInicialOpen(true)} className="btn-secondary btn-sm">
+                <Plus size={14} /> Stock inicial
+              </button>
+              <button type="button" onClick={() => navigate('/registros/nuevo')} className="btn-primary btn-sm">
+                <Plus size={14} /> Nuevo registro
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -375,6 +795,7 @@ export default function RegistrosPageV2() {
         <table className="table">
           <thead>
             <tr>
+              <SortableFilterHeader label="ID" filterType="none" />
               <SortableFilterHeader
                 label="Fecha"
                 sortKey="fecha"
@@ -458,7 +879,7 @@ export default function RegistrosPageV2() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-gray-400">
+                <td colSpan={11} className="py-12 text-center text-gray-400">
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-400 border-t-transparent" />
                     Cargando registros...
@@ -467,7 +888,7 @@ export default function RegistrosPageV2() {
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-gray-400">
+                <td colSpan={11} className="py-12 text-center text-gray-400">
                   No hay registros para mostrar.
                 </td>
               </tr>
@@ -514,6 +935,15 @@ export default function RegistrosPageV2() {
           </div>
         </div>
       )}
+
+      <StockInicialModal
+        open={stockInicialOpen}
+        onClose={() => setStockInicialOpen(false)}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          queryClient.invalidateQueries({ queryKey: ['registros'] });
+        }}
+      />
 
       <ConfirmDialog
         open={!!deleting}

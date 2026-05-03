@@ -44,9 +44,13 @@ function nextSortState(current, key) {
 function DetalleExpandido({ row }) {
   return (
     <tr className="bg-blue-50/40">
-      <td colSpan={10} className="px-4 py-4">
+      <td colSpan={11} className="px-4 py-4">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
+            <div>
+              <span className="text-xs uppercase text-gray-500">ID registro</span>
+              <p className="font-medium text-gray-900">{row.id}</p>
+            </div>
             <div>
               <span className="text-xs uppercase text-gray-500">Acción</span>
               <p className="font-medium text-gray-900">{row.accion || '-'}</p>
@@ -127,6 +131,7 @@ function RegistroRow({ row, expanded, onToggle, canManageStates, onAprobar, onRe
   return (
     <>
       <tr className="cursor-pointer" onClick={() => onToggle(row.id)}>
+        <td className="font-semibold text-gray-900">{row.id}</td>
         <td className="whitespace-nowrap font-medium">{formatSafeDate(row.fecha)}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_origen || ''}>{row.almacen_origen || '-'}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_destino || ''}>{row.almacen_destino || '-'}</td>
@@ -223,6 +228,7 @@ function TablaModulo({
         <table className="table">
           <thead>
             <tr>
+              <SortableFilterHeader label="ID" filterType="none" />
               <SortableFilterHeader
                 label="Fecha"
                 sortKey="fecha"
@@ -299,7 +305,7 @@ function TablaModulo({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={10} className="py-10 text-center text-gray-400">
+                <td colSpan={11} className="py-10 text-center text-gray-400">
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-400 border-t-transparent" />
                     Cargando...
@@ -308,7 +314,7 @@ function TablaModulo({
               </tr>
             ) : registros.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-10 text-center text-gray-400">
+                <td colSpan={11} className="py-10 text-center text-gray-400">
                   No hay registros en esta sección.
                 </td>
               </tr>

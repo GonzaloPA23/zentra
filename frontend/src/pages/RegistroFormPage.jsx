@@ -1124,12 +1124,12 @@ export default function RegistroFormPage() {
             </div>
 
             <div className="mt-4">
-              <label className="label">Observaciones <span className="text-red-500">*</span></label>
+              <label className="label">Observaciones</label>
               <textarea
                 rows={3}
                 className={`input ${errors.observaciones ? 'input-error' : ''}`}
-                placeholder="Detalle adicional del movimiento"
-                {...register('observaciones', { required: 'Requerido' })}
+                placeholder="Detalle adicional del movimiento (opcional)"
+                {...register('observaciones')}
               />
               {errors.observaciones && <p className="error-msg">{errors.observaciones.message}</p>}
             </div>

@@ -41,7 +41,7 @@ export function CategoriasPage() {
       title="Categorías"
       subtitle="Catálogo de categorías de mercadería"
       endpoint="/catalogos/categorias"
-      queryKey={['categorias']}
+      queryKey={['categorias', 'catalogo']}
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Nombre', accessor: 'nombre', searchable: true },

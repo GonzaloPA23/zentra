@@ -84,7 +84,7 @@ export default function AlmacenesPage() {
       title="Almacenes"
       subtitle="Gestión de almacenes por ciudad y región"
       endpoint="/catalogos/almacenes"
-      queryKey={['almacenes']}
+      queryKey={['almacenes', 'catalogo']}
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Nombre', accessor: 'nombre', searchable: true },

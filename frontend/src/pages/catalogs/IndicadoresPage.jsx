@@ -37,7 +37,7 @@ export default function IndicadoresPage() {
       title="Indicadores"
       subtitle="Indicadores de gestión para registros"
       endpoint="/catalogos/indicadores"
-      queryKey={['indicadores']}
+      queryKey={['indicadores', 'catalogo']}
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Nombre', accessor: 'nombre', searchable: true },

@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, validationResult } = require('express-validator');
 const { pool } = require('../db');
 const { authMiddleware, requireRol, empresaMiddleware } = require('../middleware/auth');
+const { sendExcelWorkbook } = require('../utils/excel');
 
 const router = express.Router();
 router.use(authMiddleware, empresaMiddleware);
@@ -28,6 +29,22 @@ function getZonaFromCityName(ciudadNombre) {
 
 function getZonaCaseSql(cityAlias = 'c') {
   return `CASE WHEN UPPER(${cityAlias}.nombre)='LIMA' THEN 'LIMA' ELSE 'PROVINCIA' END`;
+}
+
+function parseBooleanFlag(value) {
+  return ['1', 'true', 'yes', 'si'].includes(String(value || '').trim().toLowerCase());
+}
+
+function resolveIncludeInactive(req) {
+  return parseBooleanFlag(req.query?.incluir_inactivos);
+}
+
+function formatEstadoLabel(value) {
+  return parseBooleanFlag(value) ? 'Activo' : 'Inactivo';
+}
+
+function formatBooleanLabel(value) {
+  return parseBooleanFlag(value) ? 'Si' : 'No';
 }
 
 async function getScopedSku(skuId, empresaId, executor = pool) {
@@ -139,6 +156,163 @@ async function loteHasMovimientos(loteId, empresaId, executor = pool) {
   return !!rows[0]?.has_movimientos;
 }
 
+async function fetchCategorias(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  let q = 'SELECT * FROM categorias WHERE 1=1';
+  const p = [];
+  if (!includeInactive) q += ' AND activo=1';
+  if (eid) { q += ' AND empresa_id=?'; p.push(eid); }
+  q += ' ORDER BY nombre';
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchTiposMercaderia(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  const catId = req.query.categoria_id;
+  let q = `SELECT tm.*, c.nombre AS categoria_nombre
+           FROM tipos_mercaderia tm
+           JOIN categorias c ON c.id = tm.categoria_id
+           WHERE 1=1`;
+  const p = [];
+  if (!includeInactive) q += ' AND tm.activo=1';
+  if (eid) { q += ' AND c.empresa_id=?'; p.push(eid); }
+  if (catId) { q += ' AND tm.categoria_id=?'; p.push(catId); }
+  q += ' ORDER BY c.nombre, tm.nombre';
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchAlmacenes(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  const { ciudad_id, zona } = req.query;
+  let q = `SELECT a.*, c.nombre AS ciudad_nombre, r.nombre AS region_nombre, r.empresa_id
+           , ${getZonaCaseSql('c')} AS zona
+           FROM almacenes a
+           JOIN ciudades c ON c.id = a.ciudad_id
+           JOIN regiones r ON r.id = c.region_id
+           WHERE 1=1`;
+  const p = [];
+  if (!includeInactive) q += ' AND a.activo=1';
+  if (eid) { q += ' AND r.empresa_id=?'; p.push(eid); }
+  if (ciudad_id) { q += ' AND a.ciudad_id=?'; p.push(ciudad_id); }
+  if (zona) { q += ` AND ${getZonaCaseSql('c')}=?`; p.push(zona); }
+  q += ' ORDER BY r.nombre, c.nombre, a.nombre';
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchIndicadores(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  let q = 'SELECT * FROM indicadores WHERE 1=1';
+  const p = [];
+  if (!includeInactive) q += ' AND activo=1';
+  if (eid) { q += ' AND empresa_id=?'; p.push(eid); }
+  q += ' ORDER BY nombre';
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchPersonalReceptor(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  const { almacen_id, almacen_origen_id, almacen_destino_id, categoria_id, ciudad_id } = req.query;
+  const targetWarehouseIds = [...new Set(
+    [almacen_id, almacen_origen_id, almacen_destino_id]
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  )];
+
+  let q = `SELECT pr.*,
+              a.nombre AS almacen_nombre,
+              a.ciudad_id,
+              ci.nombre AS ciudad_nombre,
+              ca.nombre AS categoria_nombre,
+              ${getZonaCaseSql('ci')} AS zona
+           FROM personal_receptor pr
+           LEFT JOIN almacenes a ON a.id = pr.almacen_id
+           LEFT JOIN ciudades ci ON ci.id = a.ciudad_id
+           LEFT JOIN categorias ca ON ca.id = pr.categoria_id
+           WHERE 1=1`;
+  const p = [];
+
+  if (!includeInactive) q += ' AND pr.activo=1';
+  if (eid) { q += ' AND pr.empresa_id=?'; p.push(eid); }
+  if (targetWarehouseIds.length === 1) {
+    q += ' AND pr.almacen_id=?';
+    p.push(targetWarehouseIds[0]);
+  } else if (targetWarehouseIds.length > 1) {
+    q += ` AND pr.almacen_id IN (${targetWarehouseIds.map(() => '?').join(',')})`;
+    p.push(...targetWarehouseIds);
+  }
+  if (categoria_id) { q += ' AND pr.categoria_id=?'; p.push(categoria_id); }
+  if (ciudad_id) { q += ' AND a.ciudad_id=?'; p.push(ciudad_id); }
+  q += ' ORDER BY pr.nombre';
+
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchSkus(req, { includeInactive = false } = {}, executor = pool) {
+  const eid = resolveEmpresaId(req);
+  const { categoria_id, tipo_mercaderia_id, zona } = req.query;
+  let q = `SELECT s.*, c.nombre AS categoria_nombre, tm.nombre AS tipo_mercaderia_nombre,
+                  COALESCE(lc.lotes_count, 0) AS lotes_count
+           FROM skus s
+           JOIN categorias c ON c.id = s.categoria_id
+           LEFT JOIN tipos_mercaderia tm ON tm.id = s.tipo_mercaderia_id
+           LEFT JOIN (
+             SELECT sku_id, COUNT(*) AS lotes_count
+             FROM lotes
+             WHERE activo=1
+             GROUP BY sku_id
+           ) lc ON lc.sku_id = s.id
+           WHERE 1=1`;
+  const p = [];
+  if (!includeInactive) q += ' AND s.activo=1';
+  if (eid) { q += ' AND s.empresa_id=?'; p.push(eid); }
+  if (categoria_id) { q += ' AND s.categoria_id=?'; p.push(categoria_id); }
+  if (tipo_mercaderia_id) { q += ' AND s.tipo_mercaderia_id=?'; p.push(tipo_mercaderia_id); }
+  if (zona) { q += ' AND s.zona=?'; p.push(zona); }
+  q += ' ORDER BY c.nombre, s.nombre';
+  const [rows] = await executor.query(q, p);
+  return rows;
+}
+
+async function fetchLotes(req, { includeInactive = false } = {}, executor = pool) {
+  const empresaId = resolveEmpresaId(req);
+  const { sku_id } = req.query;
+  if (!sku_id) {
+    const error = new Error('sku_id requerido');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sku = await getScopedSku(sku_id, empresaId, executor);
+  if (!sku) {
+    const error = new Error('SKU no encontrado');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let query = `SELECT l.id, l.sku_id, l.codigo_lote,
+                      DATE_FORMAT(l.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
+                      l.activo, l.created_at,
+                      s.nombre AS sku_nombre
+               FROM lotes l
+               JOIN skus s ON s.id = l.sku_id
+               WHERE l.sku_id=?`;
+  const params = [sku_id];
+
+  if (!includeInactive) {
+    query += ' AND l.activo=1';
+  }
+
+  query += ' ORDER BY l.codigo_lote';
+
+  const [rows] = await executor.query(query, params);
+  return rows;
+}
+
 // ── REGIONES ──────────────────────────────────────────────────────────────────
 router.get('/regiones', async (req, res) => {
   try {
@@ -192,22 +366,39 @@ router.get('/ciudades/por-region/:region_id', async (req, res) => {
 // ── ALMACENES ─────────────────────────────────────────────────────────────────
 router.get('/almacenes', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    const { ciudad_id, zona } = req.query;
-    let q = `SELECT a.*, c.nombre AS ciudad_nombre, r.nombre AS region_nombre, r.empresa_id
-             , ${getZonaCaseSql('c')} AS zona
-             FROM almacenes a
-             JOIN ciudades c ON c.id = a.ciudad_id
-             JOIN regiones r ON r.id = c.region_id
-             WHERE a.activo=1`;
-    const p = [];
-    if (eid) { q += ' AND r.empresa_id=?'; p.push(eid); }
-    if (ciudad_id) { q += ' AND a.ciudad_id=?'; p.push(ciudad_id); }
-    if (zona) { q += ` AND ${getZonaCaseSql('c')}=?`; p.push(zona); }
-    q += ' ORDER BY r.nombre, c.nombre, a.nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchAlmacenes(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch (err) { console.error(err); res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/almacenes/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchAlmacenes(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_almacenes_${Date.now()}`,
+      sheetName: 'Almacenes',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'NOMBRE', key: 'nombre', width: 28 },
+        { header: 'CIUDAD', key: 'ciudad_nombre', width: 20 },
+        { header: 'REGION', key: 'region_nombre', width: 20 },
+        { header: 'ZONA', key: 'zona', width: 14 },
+        { header: 'DIRECCION', key: 'direccion', width: 32 },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        nombre: row.nombre || '',
+        ciudad_nombre: row.ciudad_nombre || '',
+        region_nombre: row.region_nombre || '',
+        zona: row.zona || '',
+        direccion: row.direccion || '',
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.get('/almacenes/:id', async (req, res) => {
   const [rows] = await pool.query(
@@ -240,14 +431,33 @@ router.delete('/almacenes/:id', requireRol('superadmin','admin'), async (req, re
 // ── CATEGORIAS ────────────────────────────────────────────────────────────────
 router.get('/categorias', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    let q = 'SELECT * FROM categorias WHERE activo=1';
-    const p = [];
-    if (eid) { q += ' AND empresa_id=?'; p.push(eid); }
-    q += ' ORDER BY nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchCategorias(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch { res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/categorias/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchCategorias(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_categorias_${Date.now()}`,
+      sheetName: 'Categorias',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'NOMBRE', key: 'nombre', width: 28 },
+        { header: 'DESCRIPCION', key: 'descripcion', width: 40 },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        nombre: row.nombre || '',
+        descripcion: row.descripcion || '',
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.post('/categorias', requireRol('superadmin','admin'), [body('nombre').trim().notEmpty()], validate, async (req, res) => {
   const eid = resolveEmpresaId(req) || req.empresa_id;
@@ -269,19 +479,33 @@ router.delete('/categorias/:id', requireRol('superadmin','admin'), async (req, r
 // ── TIPOS DE MERCADERIA ───────────────────────────────────────────────────────
 router.get('/tipos-mercaderia', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    const catId = req.query.categoria_id;
-    let q = `SELECT tm.*, c.nombre AS categoria_nombre
-             FROM tipos_mercaderia tm
-             JOIN categorias c ON c.id = tm.categoria_id
-             WHERE tm.activo=1`;
-    const p = [];
-    if (eid) { q += ' AND c.empresa_id=?'; p.push(eid); }
-    if (catId) { q += ' AND tm.categoria_id=?'; p.push(catId); }
-    q += ' ORDER BY c.nombre, tm.nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchTiposMercaderia(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch { res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/tipos-mercaderia/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchTiposMercaderia(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_tipos_mercaderia_${Date.now()}`,
+      sheetName: 'Tipos Mercaderia',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'CATEGORIA', key: 'categoria_nombre', width: 24 },
+        { header: 'NOMBRE', key: 'nombre', width: 28 },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        categoria_nombre: row.categoria_nombre || '',
+        nombre: row.nombre || '',
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.post('/tipos-mercaderia', requireRol('superadmin','admin'), [
   body('nombre').trim().notEmpty(),
@@ -305,14 +529,31 @@ router.delete('/tipos-mercaderia/:id', requireRol('superadmin','admin'), async (
 // ── INDICADORES ───────────────────────────────────────────────────────────────
 router.get('/indicadores', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    let q = 'SELECT * FROM indicadores WHERE activo=1';
-    const p = [];
-    if (eid) { q += ' AND empresa_id=?'; p.push(eid); }
-    q += ' ORDER BY nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchIndicadores(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch { res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/indicadores/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchIndicadores(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_indicadores_${Date.now()}`,
+      sheetName: 'Indicadores',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'NOMBRE', key: 'nombre', width: 28 },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        nombre: row.nombre || '',
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.post('/indicadores', requireRol('superadmin','admin'), [body('nombre').trim().notEmpty()], validate, async (req, res) => {
   const eid = resolveEmpresaId(req) || req.empresa_id;
@@ -332,39 +573,39 @@ router.delete('/indicadores/:id', requireRol('superadmin','admin'), async (req, 
 // ── PERSONAL RECEPTOR ─────────────────────────────────────────────────────────
 router.get('/personal-receptor', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    const { almacen_id, almacen_origen_id, almacen_destino_id, categoria_id, ciudad_id } = req.query;
-    const targetWarehouseIds = [...new Set(
-      [almacen_id, almacen_origen_id, almacen_destino_id]
-        .map((value) => Number.parseInt(value, 10))
-        .filter((value) => Number.isInteger(value) && value > 0)
-    )];
-    let q = `SELECT pr.*,
-                a.nombre AS almacen_nombre,
-                a.ciudad_id,
-                ci.nombre AS ciudad_nombre,
-                ca.nombre AS categoria_nombre,
-                ${getZonaCaseSql('ci')} AS zona
-             FROM personal_receptor pr
-             LEFT JOIN almacenes a ON a.id = pr.almacen_id
-             LEFT JOIN ciudades ci ON ci.id = a.ciudad_id
-             LEFT JOIN categorias ca ON ca.id = pr.categoria_id
-             WHERE pr.activo=1`;
-    const p = [];
-    if (eid) { q += ' AND pr.empresa_id=?'; p.push(eid); }
-    if (targetWarehouseIds.length === 1) {
-      q += ' AND pr.almacen_id=?';
-      p.push(targetWarehouseIds[0]);
-    } else if (targetWarehouseIds.length > 1) {
-      q += ` AND pr.almacen_id IN (${targetWarehouseIds.map(() => '?').join(',')})`;
-      p.push(...targetWarehouseIds);
-    }
-    if (categoria_id) { q += ' AND pr.categoria_id=?'; p.push(categoria_id); }
-    if (ciudad_id) { q += ' AND a.ciudad_id=?'; p.push(ciudad_id); }
-    q += ' ORDER BY pr.nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchPersonalReceptor(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch { res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/personal-receptor/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchPersonalReceptor(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_personal_receptor_${Date.now()}`,
+      sheetName: 'Personal Receptor',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'NOMBRE', key: 'nombre', width: 28 },
+        { header: 'CARGO', key: 'cargo', width: 22 },
+        { header: 'ALMACEN', key: 'almacen_nombre', width: 24 },
+        { header: 'CIUDAD', key: 'ciudad_nombre', width: 20 },
+        { header: 'CATEGORIA', key: 'categoria_nombre', width: 24 },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        nombre: row.nombre || '',
+        cargo: row.cargo || '',
+        almacen_nombre: row.almacen_nombre || '',
+        ciudad_nombre: row.ciudad_nombre || '',
+        categoria_nombre: row.categoria_nombre || '',
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.post('/personal-receptor', requireRol('superadmin','admin'), [
   body('nombre').trim().notEmpty(),
@@ -399,29 +640,47 @@ router.delete('/personal-receptor/:id', requireRol('superadmin','admin'), async 
 // ── SKUS ──────────────────────────────────────────────────────────────────────
 router.get('/skus', async (req, res) => {
   try {
-    const eid = resolveEmpresaId(req);
-    const { categoria_id, tipo_mercaderia_id, zona } = req.query;
-    let q = `SELECT s.*, c.nombre AS categoria_nombre, tm.nombre AS tipo_mercaderia_nombre,
-                    COALESCE(lc.lotes_count, 0) AS lotes_count
-             FROM skus s
-             JOIN categorias c ON c.id = s.categoria_id
-             LEFT JOIN tipos_mercaderia tm ON tm.id = s.tipo_mercaderia_id
-             LEFT JOIN (
-               SELECT sku_id, COUNT(*) AS lotes_count
-               FROM lotes
-               WHERE activo=1
-               GROUP BY sku_id
-             ) lc ON lc.sku_id = s.id
-             WHERE s.activo=1`;
-    const p = [];
-    if (eid) { q += ' AND s.empresa_id=?'; p.push(eid); }
-    if (categoria_id) { q += ' AND s.categoria_id=?'; p.push(categoria_id); }
-    if (tipo_mercaderia_id) { q += ' AND s.tipo_mercaderia_id=?'; p.push(tipo_mercaderia_id); }
-    if (zona) { q += ' AND s.zona=?'; p.push(zona); }
-    q += ' ORDER BY c.nombre, s.nombre';
-    const [rows] = await pool.query(q, p);
+    const rows = await fetchSkus(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch (err) { console.error(err); res.status(500).json({ ok: false, mensaje: 'Error interno' }); }
+});
+router.get('/skus/export/excel', requireRol('superadmin','admin'), async (req, res) => {
+  try {
+    const rows = await fetchSkus(req, { includeInactive: true });
+    await sendExcelWorkbook(res, {
+      fileName: `catalogo_skus_${Date.now()}`,
+      sheetName: 'SKUs',
+      columns: [
+        { header: 'ID', key: 'id', width: 10, type: 'integer' },
+        { header: 'NOMBRE', key: 'nombre', width: 30 },
+        { header: 'CODIGO', key: 'codigo', width: 18 },
+        { header: 'CATEGORIA', key: 'categoria_nombre', width: 24 },
+        { header: 'TIPO MERCADERIA', key: 'tipo_mercaderia_nombre', width: 24 },
+        { header: 'ZONA', key: 'zona', width: 14 },
+        { header: 'UNIDAD', key: 'unidad', width: 14 },
+        { header: 'MANEJA LOTES', key: 'tiene_lote', width: 14 },
+        { header: 'TIENE VENCIMIENTO', key: 'tiene_vencimiento', width: 18 },
+        { header: 'LOTES ACTIVOS', key: 'lotes_count', width: 14, type: 'integer' },
+        { header: 'ESTADO', key: 'estado', width: 14 },
+      ],
+      rows: rows.map((row) => ({
+        id: Number(row.id || 0),
+        nombre: row.nombre || '',
+        codigo: row.codigo || '',
+        categoria_nombre: row.categoria_nombre || '',
+        tipo_mercaderia_nombre: row.tipo_mercaderia_nombre || '',
+        zona: row.zona || '',
+        unidad: row.unidad || '',
+        tiene_lote: formatBooleanLabel(row.tiene_lote),
+        tiene_vencimiento: formatBooleanLabel(row.tiene_vencimiento),
+        lotes_count: Number(row.lotes_count || 0),
+        estado: formatEstadoLabel(row.activo),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
+  }
 });
 router.get('/skus/:id', async (req, res) => {
   const [rows] = await pool.query('SELECT * FROM skus WHERE id=?', [req.params.id]);
@@ -475,30 +734,11 @@ router.delete('/skus/:id', requireRol('superadmin','admin'), async (req, res) =>
 // ── LOTES ─────────────────────────────────────────────────────────────────────
 router.get('/lotes', async (req, res) => {
   try {
-    const empresaId = resolveEmpresaId(req);
-    const { sku_id } = req.query;
-    if (!sku_id) return res.status(400).json({ ok: false, mensaje: 'sku_id requerido' });
-
-    const sku = await getScopedSku(sku_id, empresaId);
-    if (!sku) {
-      return res.status(404).json({ ok: false, mensaje: 'SKU no encontrado' });
-    }
-
-    const [rows] = await pool.query(
-      `SELECT l.id, l.sku_id, l.codigo_lote,
-              DATE_FORMAT(l.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
-              l.activo, l.created_at,
-              s.nombre AS sku_nombre
-       FROM lotes l
-       JOIN skus s ON s.id = l.sku_id
-       WHERE l.sku_id=? AND l.activo=1
-       ORDER BY l.codigo_lote`,
-      [sku_id]
-    );
+    const rows = await fetchLotes(req, { includeInactive: resolveIncludeInactive(req) });
     res.json({ ok: true, datos: rows });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ ok: false, mensaje: 'Error interno' });
+    res.status(err.statusCode || 500).json({ ok: false, mensaje: err.message || 'Error interno' });
   }
 });
 router.post('/lotes', requireRol('superadmin','admin','almacenero'), [
@@ -610,7 +850,7 @@ router.delete('/lotes/:id', requireRol('superadmin','admin'), async (req, res) =
       });
     }
 
-    await pool.query('DELETE FROM lotes WHERE id=?', [req.params.id]);
+    await pool.query('UPDATE lotes SET activo=0 WHERE id=?', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);

@@ -75,7 +75,7 @@ export default function TiposMercaderiaPage() {
       title="Tipos de Mercadería"
       subtitle="Tipos asociados a cada categoría"
       endpoint="/catalogos/tipos-mercaderia"
-      queryKey={['tipos-mercaderia']}
+      queryKey={['tipos-mercaderia', 'catalogo']}
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Categoría', accessor: 'categoria_nombre', searchable: true },
