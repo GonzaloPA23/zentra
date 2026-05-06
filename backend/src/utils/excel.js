@@ -59,20 +59,14 @@ function applyLinkStyle(cell) {
   };
 }
 
-async function sendExcelWorkbook(res, {
-  fileName,
-  sheetName,
-  columns = [],
-  rows = [],
-}) {
+function createWorkbook() {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'ZENTRA';
   workbook.created = new Date();
+  return workbook;
+}
 
-  const worksheet = workbook.addWorksheet(sanitizeSheetName(sheetName), {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-
+function prepareWorksheet(worksheet, columns = []) {
   worksheet.columns = columns.map((column) => ({
     header: column.header,
     key: column.key,
@@ -80,10 +74,23 @@ async function sendExcelWorkbook(res, {
     style: column.style || {},
   }));
 
+  if (!columns.length) {
+    return worksheet;
+  }
+
   const headerRow = worksheet.getRow(1);
   headerRow.height = 22;
   headerRow.eachCell((cell) => applyHeaderStyle(cell));
 
+  worksheet.autoFilter = {
+    from: 'A1',
+    to: `${getColumnLetter(columns.length - 1)}1`,
+  };
+
+  return worksheet;
+}
+
+function addWorksheetRows(worksheet, columns = [], rows = []) {
   rows.forEach((row) => {
     const excelRow = worksheet.addRow(row);
     excelRow.eachCell((cell, columnNumber) => {
@@ -114,16 +121,16 @@ async function sendExcelWorkbook(res, {
       }
     });
   });
+}
 
-  worksheet.autoFilter = {
-    from: 'A1',
-    to: `${getColumnLetter(columns.length - 1)}1`,
-  };
-
+async function sendWorkbook(res, workbook, fileName) {
   res.setHeader(
     'Content-Type',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   );
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.setHeader(
     'Content-Disposition',
     `attachment; filename="${sanitizeFileName(fileName)}.xlsx"`
@@ -133,6 +140,107 @@ async function sendExcelWorkbook(res, {
   res.end();
 }
 
+async function sendExcelWorkbook(res, {
+  fileName,
+  sheetName,
+  columns = [],
+  rows = [],
+}) {
+  const workbook = createWorkbook();
+  const worksheet = workbook.addWorksheet(sanitizeSheetName(sheetName), {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  prepareWorksheet(worksheet, columns);
+  addWorksheetRows(worksheet, columns, rows);
+  await sendWorkbook(res, workbook, fileName);
+}
+
+function extractCellValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) {
+      return value.richText.map((part) => part.text || '').join('');
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      return value.result;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'text')) {
+      return value.text;
+    }
+  }
+
+  return value;
+}
+
+function normalizeHeaderKey(value = '') {
+  return String(extractCellValue(value) || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function readWorksheetRows(worksheet, { headerRowNumber = 1 } = {}) {
+  const headerRow = worksheet.getRow(headerRowNumber);
+  const headers = [];
+
+  headerRow.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+    headers[columnNumber] = normalizeHeaderKey(cell.value) || `column_${columnNumber}`;
+  });
+
+  const rows = [];
+
+  for (let rowNumber = headerRowNumber + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const record = { __rowNum: rowNumber };
+    let hasValues = false;
+    const maxColumns = Math.max(headers.length - 1, row.cellCount);
+
+    for (let columnNumber = 1; columnNumber <= maxColumns; columnNumber += 1) {
+      const key = headers[columnNumber];
+      if (!key) continue;
+
+      const rawValue = extractCellValue(row.getCell(columnNumber).value);
+      const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+
+      if (value !== null && value !== undefined && value !== '') {
+        hasValues = true;
+      }
+
+      record[key] = value;
+    }
+
+    if (hasValues) {
+      rows.push(record);
+    }
+  }
+
+  return rows;
+}
+
+async function readWorkbookFromBuffer(buffer) {
+  const workbook = createWorkbook();
+  await workbook.xlsx.load(buffer);
+  return workbook;
+}
+
 module.exports = {
+  ExcelJS,
+  addWorksheetRows,
+  createWorkbook,
+  prepareWorksheet,
+  readWorkbookFromBuffer,
+  readWorksheetRows,
   sendExcelWorkbook,
+  sendWorkbook,
 };

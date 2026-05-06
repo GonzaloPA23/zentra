@@ -28,6 +28,7 @@ export default function GenericCatalogPage({
   FormComponent,
   formDefaults = {},
   buildPayload = (d) => d,
+  extraActions = null,
 }) {
   const qc = useQueryClient();
   const [modal, setModal] = useState(null); // null | 'create' | 'edit'
@@ -162,6 +163,7 @@ export default function GenericCatalogPage({
         searchPlaceholder={`Buscar en ${title.toLowerCase()}...`}
         actions={
           <>
+            {extraActions}
             <button className="btn-secondary btn-sm" onClick={handleExport} disabled={exporting}>
               <FileSpreadsheet size={14} /> {exporting ? "Exportando..." : "Exportar Excel"}
             </button>

@@ -1,0 +1,6 @@
+Error: No se encontro SKUs "AVENA 3 OSITOS QUINUA 500GR" en la fila 3.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:210:11)
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1568:7)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2037:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2882:21

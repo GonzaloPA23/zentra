@@ -1,0 +1,8 @@
+[DB] Conexión MySQL exitosa
+
+🚀 ZENTRA API corriendo en http://localhost:4001
+   Entorno: production
+   Health:  http://localhost:4001/health
+
+::ffff:127.0.0.1 - - [04/May/2026:18:05:17 +0000] "GET /health HTTP/1.1" 200 68 "-" "curl/8.18.0"
+::1 - - [04/May/2026:18:05:18 +0000] "POST /api/registros/stock-inicial/import/excel HTTP/1.1" 400 90 "-" "curl/8.18.0"

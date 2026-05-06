@@ -254,6 +254,7 @@ CREATE TABLE `personal_receptor` (
   `id` int(10) UNSIGNED NOT NULL,
   `empresa_id` int(10) UNSIGNED NOT NULL,
   `nombre` varchar(150) NOT NULL,
+  `email` varchar(150) NOT NULL,
   `cargo` varchar(100) DEFAULT NULL,
   `almacen_id` int(10) UNSIGNED DEFAULT NULL,
   `categoria_id` int(10) UNSIGNED DEFAULT NULL,
@@ -266,12 +267,12 @@ CREATE TABLE `personal_receptor` (
 -- Volcado de datos para la tabla `personal_receptor`
 --
 
-INSERT INTO `personal_receptor` (`id`, `empresa_id`, `nombre`, `cargo`, `almacen_id`, `categoria_id`, `activo`, `created_at`, `updated_at`) VALUES
-(1, 1, 'ALMACENERO PRINCIPAL', 'Almacenero', 28, 1, 1, '2026-04-15 14:02:40', '2026-04-16 18:35:08'),
-(2, 1, 'SUPERVISOR REGIONAL', 'Supervisor', NULL, NULL, 1, '2026-04-15 14:02:40', '2026-04-15 14:02:40'),
-(3, 1, 'JEFE DE ALMACEN', 'Jefe', NULL, NULL, 1, '2026-04-15 14:02:40', '2026-04-15 14:02:40'),
-(4, 1, 'JEFE SUPERVISOR', NULL, NULL, NULL, 1, '2026-04-15 22:26:32', '2026-04-15 22:26:32'),
-(5, 1, 'jefe', NULL, 1, 1, 1, '2026-04-16 18:37:25', '2026-04-16 18:37:25');
+INSERT INTO `personal_receptor` (`id`, `empresa_id`, `nombre`, `email`, `cargo`, `almacen_id`, `categoria_id`, `activo`, `created_at`, `updated_at`) VALUES
+(1, 1, 'ALMACENERO PRINCIPAL', 'personal.receptor.1@gdb.com.pe', 'Almacenero', 28, 1, 1, '2026-04-15 14:02:40', '2026-04-16 18:35:08'),
+(2, 1, 'SUPERVISOR REGIONAL', 'personal.receptor.2@gdb.com.pe', 'Supervisor', NULL, NULL, 1, '2026-04-15 14:02:40', '2026-04-15 14:02:40'),
+(3, 1, 'JEFE DE ALMACEN', 'personal.receptor.3@gdb.com.pe', 'Jefe', NULL, NULL, 1, '2026-04-15 14:02:40', '2026-04-15 14:02:40'),
+(4, 1, 'JEFE SUPERVISOR', 'personal.receptor.4@gdb.com.pe', NULL, NULL, NULL, 1, '2026-04-15 22:26:32', '2026-04-15 22:26:32'),
+(5, 1, 'jefe', 'personal.receptor.5@gdb.com.pe', NULL, 1, 1, 1, '2026-04-16 18:37:25', '2026-04-16 18:37:25');
 
 -- --------------------------------------------------------
 
@@ -775,7 +776,8 @@ ALTER TABLE `personal_receptor`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_empresa` (`empresa_id`),
   ADD KEY `idx_pr_almacen` (`almacen_id`),
-  ADD KEY `idx_pr_categoria` (`categoria_id`);
+  ADD KEY `idx_pr_categoria` (`categoria_id`),
+  ADD UNIQUE KEY `uq_personal_receptor_empresa_email` (`empresa_id`,`email`);
 
 --
 -- Indices de la tabla `regiones`

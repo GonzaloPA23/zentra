@@ -23,6 +23,7 @@ function PersonalForm({ defaults, onSubmit, onCancel, loading }) {
   } = useForm({
     defaultValues: {
       nombre: defaults?.nombre || '',
+      email: defaults?.email || '',
       cargo: defaults?.cargo || '',
       almacen_id: defaults?.almacen_id || '',
       categoria_id: defaults?.categoria_id || '',
@@ -57,6 +58,23 @@ function PersonalForm({ defaults, onSubmit, onCancel, loading }) {
         <div>
           <label className="label">Cargo</label>
           <input className="input" placeholder="Ej: Almacenero, Supervisor..." {...register('cargo')} />
+        </div>
+
+        <div>
+          <label className="label">Correo <span className="text-red-500">*</span></label>
+          <input
+            type="email"
+            className={`input ${errors.email ? 'input-error' : ''}`}
+            placeholder="Ej: receptor@empresa.com"
+            {...register('email', {
+              required: 'Requerido',
+              pattern: {
+                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                message: 'Correo invalido',
+              },
+            })}
+          />
+          {errors.email && <p className="error-msg">{errors.email.message}</p>}
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -122,6 +140,7 @@ export default function PersonalReceptorPage() {
       columns={[
         { header: '#', accessor: 'id', width: 60 },
         { header: 'Nombre', accessor: 'nombre', searchable: true },
+        { header: 'Correo', accessor: 'email', searchable: true },
         { header: 'Almacén', accessor: 'almacen_nombre', searchable: true, render: (row) => row.almacen_nombre || '-' },
         { header: 'Ciudad', accessor: 'ciudad_nombre', searchable: true, render: (row) => row.ciudad_nombre || '-' },
         { header: 'Categoría', accessor: 'categoria_nombre', searchable: true, render: (row) => row.categoria_nombre || '-' },

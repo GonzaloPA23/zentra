@@ -27,10 +27,29 @@ api.interceptors.response.use(
   }
 );
 
+function getMensajeDesdePayload(payload) {
+  if (!payload) return null;
+
+  if (typeof payload === 'string') {
+    try {
+      return getMensajeDesdePayload(JSON.parse(payload));
+    } catch {
+      return payload.trim() || null;
+    }
+  }
+
+  if (typeof payload !== 'object') return null;
+
+  return payload?.mensaje
+    || payload?.errores?.[0]?.msg
+    || null;
+}
+
 // Helper para extraer mensaje de error
 export function getMensajeError(err) {
-  return err?.response?.data?.mensaje
-    || err?.response?.data?.errores?.[0]?.msg
+  return getMensajeDesdePayload(err?.response?.data)
+    || getMensajeDesdePayload(err?.request?.response)
+    || getMensajeDesdePayload(err?.request?.responseText)
     || err?.message
     || 'Error inesperado';
 }
