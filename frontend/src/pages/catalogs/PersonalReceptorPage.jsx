@@ -75,6 +75,11 @@ function PersonalForm({ defaults, onSubmit, onCancel, loading }) {
             })}
           />
           {errors.email && <p className="error-msg">{errors.email.message}</p>}
+          {!errors.email && (
+            <p className="mt-1 text-xs text-gray-400">
+              El mismo correo se puede reutilizar en otros almacenes o categorias.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

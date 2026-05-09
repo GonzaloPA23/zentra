@@ -94,6 +94,30 @@ function normalizeOptionalString(value) {
   return normalized ? normalized : null;
 }
 
+const PERSONAL_RECEPTOR_DUPLICATE_MESSAGE =
+  "Ya existe un personal receptor con ese correo para el mismo almacen y categoria";
+
+async function findPersonalReceptorDuplicate({
+  empresaId,
+  email,
+  almacenId,
+  categoriaId,
+  excludeId = null,
+}) {
+  const params = [empresaId, email, almacenId, categoriaId];
+  let sql =
+    "SELECT id FROM personal_receptor WHERE empresa_id=? AND email=? AND almacen_id=? AND categoria_id=?";
+
+  if (excludeId !== null && excludeId !== undefined) {
+    sql += " AND id<>?";
+    params.push(excludeId);
+  }
+
+  sql += " LIMIT 1";
+  const [rows] = await pool.query(sql, params);
+  return rows[0] || null;
+}
+
 function normalizeSpreadsheetDateInput(value) {
   if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -1714,14 +1738,16 @@ router.post(
   async (req, res) => {
     const eid = resolveEmpresaId(req) || req.empresa_id;
     const { nombre, email, cargo, almacen_id, categoria_id } = req.body;
-    const [existingRows] = await pool.query(
-      "SELECT id FROM personal_receptor WHERE empresa_id=? AND email=? LIMIT 1",
-      [eid, email],
-    );
-    if (existingRows.length) {
+    const existingRow = await findPersonalReceptorDuplicate({
+      empresaId: eid,
+      email,
+      almacenId: almacen_id,
+      categoriaId: categoria_id,
+    });
+    if (existingRow) {
       return res
         .status(400)
-        .json({ ok: false, mensaje: "Ya existe un personal receptor con ese correo" });
+        .json({ ok: false, mensaje: PERSONAL_RECEPTOR_DUPLICATE_MESSAGE });
     }
     const [r] = await pool.query(
       "INSERT INTO personal_receptor (empresa_id, nombre, email, cargo, almacen_id, categoria_id) VALUES (?,?,?,?,?,?)",
@@ -1744,14 +1770,17 @@ router.put(
   async (req, res) => {
     const eid = resolveEmpresaId(req) || req.empresa_id;
     const { nombre, email, cargo, almacen_id, categoria_id, activo } = req.body;
-    const [existingRows] = await pool.query(
-      "SELECT id FROM personal_receptor WHERE empresa_id=? AND email=? AND id<>? LIMIT 1",
-      [eid, email, req.params.id],
-    );
-    if (existingRows.length) {
+    const existingRow = await findPersonalReceptorDuplicate({
+      empresaId: eid,
+      email,
+      almacenId: almacen_id,
+      categoriaId: categoria_id,
+      excludeId: req.params.id,
+    });
+    if (existingRow) {
       return res
         .status(400)
-        .json({ ok: false, mensaje: "Ya existe un personal receptor con ese correo" });
+        .json({ ok: false, mensaje: PERSONAL_RECEPTOR_DUPLICATE_MESSAGE });
     }
     await pool.query(
       "UPDATE personal_receptor SET nombre=?, email=?, cargo=?, almacen_id=?, categoria_id=?, activo=? WHERE id=?",

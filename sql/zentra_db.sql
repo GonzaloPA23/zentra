@@ -777,7 +777,7 @@ ALTER TABLE `personal_receptor`
   ADD KEY `idx_empresa` (`empresa_id`),
   ADD KEY `idx_pr_almacen` (`almacen_id`),
   ADD KEY `idx_pr_categoria` (`categoria_id`),
-  ADD UNIQUE KEY `uq_personal_receptor_empresa_email` (`empresa_id`,`email`);
+  ADD UNIQUE KEY `uq_personal_receptor_empresa_email_almacen_categoria` (`empresa_id`,`email`,`almacen_id`,`categoria_id`);
 
 --
 -- Indices de la tabla `regiones`
