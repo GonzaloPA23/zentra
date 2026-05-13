@@ -166,6 +166,10 @@ function normalizeLookupText(value) {
     .toUpperCase();
 }
 
+function isTgMolitaliaIndicator(value) {
+  return normalizeLookupText(value) === "TG MOLITALIA";
+}
+
 function buildDuplicateLookupSet(rows = [], getter) {
   const counts = new Map();
   rows.forEach((row) => {
@@ -1269,7 +1273,7 @@ async function validateRegistroPayloadV2(
   const [categoryRows] = await executor.query(categoryQuery, categoryParams);
   if (!categoryRows.length) throw new Error("Categoria no encontrada");
 
-  let indicatorQuery = "SELECT id FROM indicadores WHERE id=? AND activo=1";
+  let indicatorQuery = "SELECT id, nombre FROM indicadores WHERE id=? AND activo=1";
   const indicatorParams = [indicadorId];
   if (req.empresa_id) {
     indicatorQuery += " AND empresa_id=?";
@@ -1277,6 +1281,22 @@ async function validateRegistroPayloadV2(
   }
   const [indicatorRows] = await executor.query(indicatorQuery, indicatorParams);
   if (!indicatorRows.length) throw new Error("Indicador no encontrado");
+  const indicator = indicatorRows[0];
+  const isMolitaliaEntry = isTgMolitaliaIndicator(indicator.nombre);
+
+  console.log("[DEBUG] Indicador:", indicator.nombre, "| Normalizado:", normalizeLookupText(indicator.nombre), "| isMolitalia:", isMolitaliaEntry, "| tipoAccion:", payload.tipo_accion, "| origen:", almacenOrigenId, "| destino:", almacenDestinoId);
+
+  if (
+    isMolitaliaEntry &&
+    String(payload.tipo_accion || "").toUpperCase() !== "ENTRADA"
+  ) {
+    throw new Error("Para TG MOLITALIA el tipo de acción debe ser ENTRADA");
+  }
+  if (isMolitaliaEntry && almacenOrigenId !== almacenDestinoId) {
+    throw new Error(
+      "Para TG MOLITALIA el almacén destino debe ser igual al almacén origen",
+    );
+  }
 
   const allowedPersonalWarehouseIds = [
     ...new Set([almacenOrigenId, almacenDestinoId]),
@@ -1440,18 +1460,20 @@ async function validateRegistroPayloadV2(
     });
   });
 
-  await ensureStockAvailabilityForBatch(
-    executor,
-    {
-      empresa_id: req.empresa_id,
-      almacen_origen_id: almacenOrigenId,
-      almacen_origen:
-        warehouseMap.get(almacenOrigenId)?.nombre ||
-        `almacen ${almacenOrigenId}`,
-      detalles: normalizedDetails,
-    },
-    "SALIDA_TRANSITO",
-  );
+  if (!isMolitaliaEntry) {
+    await ensureStockAvailabilityForBatch(
+      executor,
+      {
+        empresa_id: req.empresa_id,
+        almacen_origen_id: almacenOrigenId,
+        almacen_origen:
+          warehouseMap.get(almacenOrigenId)?.nombre ||
+          `almacen ${almacenOrigenId}`,
+        detalles: normalizedDetails,
+      },
+      "SALIDA_TRANSITO",
+    );
+  }
 
   return {
     ...payload,
@@ -1573,7 +1595,7 @@ async function validateRegistroPayload(
   const [categoryRows] = await executor.query(categoryQuery, categoryParams);
   if (!categoryRows.length) throw new Error("Categoría no encontrada");
 
-  let indicatorQuery = "SELECT id FROM indicadores WHERE id=? AND activo=1";
+  let indicatorQuery = "SELECT id, nombre FROM indicadores WHERE id=? AND activo=1";
   const indicatorParams = [indicadorId];
   if (req.empresa_id) {
     indicatorQuery += " AND empresa_id=?";
@@ -3454,12 +3476,10 @@ router.get(
       });
     } catch (err) {
       console.error(err);
-      res
-        .status(500)
-        .json({
-          ok: false,
-          mensaje: "Error al exportar el reporte de stock inicial",
-        });
+      res.status(500).json({
+        ok: false,
+        mensaje: "Error al exportar el reporte de stock inicial",
+      });
     }
   },
 );
@@ -3553,13 +3573,11 @@ router.get(
       );
     } catch (err) {
       console.error(err);
-      res
-        .status(err.statusCode || 500)
-        .json({
-          ok: false,
-          mensaje:
-            err.message || "No se pudo generar la plantilla de stock inicial",
-        });
+      res.status(err.statusCode || 500).json({
+        ok: false,
+        mensaje:
+          err.message || "No se pudo generar la plantilla de stock inicial",
+      });
     }
   },
 );
@@ -3573,12 +3591,10 @@ router.post(
 
     try {
       if (!req.file?.buffer) {
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            mensaje: "Debes adjuntar un archivo Excel .xlsx",
-          });
+        return res.status(400).json({
+          ok: false,
+          mensaje: "Debes adjuntar un archivo Excel .xlsx",
+        });
       }
 
       const workbook = await readWorkbookFromBuffer(req.file.buffer);
@@ -3601,14 +3617,11 @@ router.post(
     } catch (err) {
       await connection.rollback();
       console.error(err);
-      res
-        .status(err.statusCode || 400)
-        .json({
-          ok: false,
-          mensaje:
-            err.message ||
-            "No se pudo procesar la carga masiva de stock inicial",
-        });
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje:
+          err.message || "No se pudo procesar la carga masiva de stock inicial",
+      });
     } finally {
       connection.release();
     }
@@ -3654,12 +3667,10 @@ router.post(
     } catch (err) {
       await connection.rollback();
       console.error(err);
-      res
-        .status(err.statusCode || 400)
-        .json({
-          ok: false,
-          mensaje: err.message || "No se pudo registrar el stock inicial",
-        });
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje: err.message || "No se pudo registrar el stock inicial",
+      });
     } finally {
       connection.release();
     }
@@ -3741,12 +3752,10 @@ router.get("/:id/export/excel", async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res
-      .status(err.statusCode || 500)
-      .json({
-        ok: false,
-        mensaje: err.message || "Error al exportar el detalle",
-      });
+    res.status(err.statusCode || 500).json({
+      ok: false,
+      mensaje: err.message || "Error al exportar el detalle",
+    });
   }
 });
 
@@ -3828,23 +3837,19 @@ router.post(
       });
 
       await connection.commit();
-      res
-        .status(201)
-        .json({
-          ok: true,
-          id: result.insertId,
-          mensaje: "Registro creado exitosamente",
-        });
+      res.status(201).json({
+        ok: true,
+        id: result.insertId,
+        mensaje: "Registro creado exitosamente",
+      });
     } catch (err) {
       await connection.rollback();
       if (uploadedFileName) cleanupUploadedFile(uploadedFileName);
       console.error(err);
-      res
-        .status(err.statusCode || 400)
-        .json({
-          ok: false,
-          mensaje: err.message || "No se pudo crear el registro",
-        });
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje: err.message || "No se pudo crear el registro",
+      });
     } finally {
       connection.release();
     }
@@ -3961,12 +3966,10 @@ router.put(
       await connection.rollback();
       if (uploadedFileName) cleanupUploadedFile(uploadedFileName);
       console.error(err);
-      res
-        .status(err.statusCode || 400)
-        .json({
-          ok: false,
-          mensaje: err.message || "No se pudo actualizar el registro",
-        });
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje: err.message || "No se pudo actualizar el registro",
+      });
     } finally {
       connection.release();
     }
@@ -4073,12 +4076,10 @@ router.patch(
     } catch (err) {
       await connection.rollback();
       console.error(err);
-      res
-        .status(err.statusCode || 400)
-        .json({
-          ok: false,
-          mensaje: err.message || "No se pudo actualizar el estado",
-        });
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje: err.message || "No se pudo actualizar el estado",
+      });
     } finally {
       connection.release();
     }
@@ -4134,16 +4135,13 @@ router.delete("/:id", requireRol("superadmin", "admin"), async (req, res) => {
   } catch (err) {
     await connection.rollback();
     console.error(err);
-    res
-      .status(err.statusCode || 400)
-      .json({
-        ok: false,
-        mensaje: err.message || "No se pudo eliminar el registro",
-      });
+    res.status(err.statusCode || 400).json({
+      ok: false,
+      mensaje: err.message || "No se pudo eliminar el registro",
+    });
   } finally {
     connection.release();
   }
 });
 
 module.exports = router;
-

@@ -13,3 +13,67 @@
    Entorno: production
    Health:  http://localhost:4000/health
 
+::1 - - [06/May/2026:21:43:04 +0000] "GET /health HTTP/1.1" 200 68 "-" "Mozilla/5.0 (Windows NT; Windows NT 10.0; es-PE) WindowsPowerShell/5.1.26100.8115"
+::1 - - [06/May/2026:21:55:01 +0000] "GET /api/dashboard/resumen HTTP/1.1" 401 51 "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:55:03 +0000] "POST /api/auth/login HTTP/1.1" 200 486 "http://localhost:3000/login" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:55:03 +0000] "GET /api/dashboard/resumen HTTP/1.1" 200 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:56:23 +0000] "GET /api/catalogos/skus?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/skus" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:56:28 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:56:33 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:58:23 +0000] "GET /api/catalogos/almacenes HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:58:23 +0000] "GET /api/catalogos/categorias HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:59:07 +0000] "POST /api/catalogos/personal-receptor HTTP/1.1" 201 19 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:59:07 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:59:12 +0000] "GET /api/catalogos/almacenes HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:59:13 +0000] "GET /api/catalogos/categorias HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:21:59:33 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:00:33 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:00:39 +0000] "POST /api/catalogos/personal-receptor HTTP/1.1" 400 104 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:00:49 +0000] "POST /api/catalogos/personal-receptor HTTP/1.1" 201 19 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:00:50 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:00 +0000] "GET /api/catalogos/almacenes HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:00 +0000] "GET /api/catalogos/categorias HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:03 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:10 +0000] "POST /api/catalogos/personal-receptor HTTP/1.1" 201 19 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:10 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:33 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:37 +0000] "GET /api/catalogos/categorias HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:37 +0000] "GET /api/catalogos/almacenes HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:51 +0000] "POST /api/catalogos/personal-receptor HTTP/1.1" 201 19 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:01:52 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 200 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [06/May/2026:22:02:04 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:14:07:55 +0000] "GET /api/dashboard/resumen HTTP/1.1" 401 51 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:14:07:55 +0000] "GET /api/catalogos/personal-receptor?incluir_inactivos=1 HTTP/1.1" 401 51 "http://localhost:3000/catalogos/personal-receptor" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:16:26:12 +0000] "POST /api/auth/login HTTP/1.1" 200 486 "http://localhost:3000/login" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:16:26:12 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:16:26:16 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:18:41:36 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:18:42:06 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [07/May/2026:18:42:23 +0000] "GET /api/dashboard/resumen HTTP/1.1" 304 - "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+::1 - - [08/May/2026:02:01:51 +0000] "GET /api/dashboard/resumen HTTP/1.1" 401 51 "http://localhost:3000/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/server.js`[39m
+[DB] Conexión MySQL exitosa
+
+🚀 ZENTRA API corriendo en http://localhost:4000
+   Entorno: production
+   Health:  http://localhost:4000/health
+
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/server.js`[39m
+[DB] Conexión MySQL exitosa
+
+🚀 ZENTRA API corriendo en http://localhost:4000
+   Entorno: production
+   Health:  http://localhost:4000/health
+
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/server.js`[39m
+[DB] Conexión MySQL exitosa
+
+🚀 ZENTRA API corriendo en http://localhost:4000
+   Entorno: production
+   Health:  http://localhost:4000/health
+
