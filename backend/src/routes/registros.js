@@ -4000,27 +4000,46 @@ router.patch(
       await connection.beginTransaction();
 
       if (existing.estado !== estado) {
+        // Detectar si el registro corresponde a TG MOLITALIA
+        const isMolitaliaEntry = isTgMolitaliaIndicator(
+          existing.indicador_nombre || existing.indicador || "",
+        );
+
+        // Para registros TG MOLITALIA no aplicamos SALIDA_TRANSITO (solo ingreso)
         if (existing.estado === "pendiente" && estado === "en_transito") {
-          await applyStockMovementBatch(
-            connection,
-            existing,
-            "SALIDA_TRANSITO",
-            req.usuario.id,
-          );
+          if (!isMolitaliaEntry) {
+            await applyStockMovementBatch(
+              connection,
+              existing,
+              "SALIDA_TRANSITO",
+              req.usuario.id,
+            );
+          }
         } else if (existing.estado === "pendiente" && estado === "aprobado") {
-          await applyStockMovementBatch(
-            connection,
-            existing,
-            "SALIDA_TRANSITO",
-            req.usuario.id,
-          );
-          await applyStockMovementBatch(
-            connection,
-            existing,
-            "INGRESO_APROBADO",
-            req.usuario.id,
-          );
+          if (isMolitaliaEntry) {
+            // Solo registrar el ingreso aprobado para TG MOLITALIA
+            await applyStockMovementBatch(
+              connection,
+              existing,
+              "INGRESO_APROBADO",
+              req.usuario.id,
+            );
+          } else {
+            await applyStockMovementBatch(
+              connection,
+              existing,
+              "SALIDA_TRANSITO",
+              req.usuario.id,
+            );
+            await applyStockMovementBatch(
+              connection,
+              existing,
+              "INGRESO_APROBADO",
+              req.usuario.id,
+            );
+          }
         } else if (existing.estado === "en_transito" && estado === "aprobado") {
+          // Ingreso siempre (si antes no hubo salida para TG, esto será solo el ingreso)
           await applyStockMovementBatch(
             connection,
             existing,
