@@ -17,6 +17,7 @@ import TiposMercaderiaPage from './pages/catalogs/TiposMercaderiaPage';
 import UsuariosPage from './pages/UsuariosPage';
 import EmpresasPage from './pages/EmpresasPage';
 import HistorialPage from './pages/HistorialPageV2';
+import ConfiguracionNotificacionesPage from './pages/ConfiguracionNotificacionesPage';
 import NotFound from './pages/NotFound';
 
 function ProtectedRoute({ children, roles }) {
@@ -71,6 +72,7 @@ function AppRoutes() {
         {/* Admin */}
         <Route path="usuarios" element={<ProtectedRoute roles={['superadmin','admin']}><UsuariosPage /></ProtectedRoute>} />
         <Route path="empresas" element={<ProtectedRoute roles={['superadmin']}><EmpresasPage /></ProtectedRoute>} />
+        <Route path="configuracion/notificaciones" element={<ProtectedRoute roles={['superadmin','admin']}><ConfiguracionNotificacionesPage /></ProtectedRoute>} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

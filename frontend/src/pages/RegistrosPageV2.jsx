@@ -315,24 +315,6 @@ function StockInicialModal({ open, onClose, onSaved }) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="label">
-                Almacen <span className="text-red-500">*</span>
-              </label>
-              <SearchableSelect
-                control={control}
-                name="almacen_id"
-                rules={{ required: "Requerido" }}
-                options={almacenesOptions}
-                placeholder="Seleccionar almacen..."
-                emptyText="Sin almacenes disponibles"
-                disabled={stockInicialMutation.isPending}
-              />
-              {errors.almacen_id && (
-                <p className="error-msg">{errors.almacen_id.message}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="label">
                 Categoria <span className="text-red-500">*</span>
               </label>
               <SearchableSelect
@@ -346,6 +328,24 @@ function StockInicialModal({ open, onClose, onSaved }) {
               />
               {errors.categoria_id && (
                 <p className="error-msg">{errors.categoria_id.message}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="label">
+                Almacen <span className="text-red-500">*</span>
+              </label>
+              <SearchableSelect
+                control={control}
+                name="almacen_id"
+                rules={{ required: "Requerido" }}
+                options={almacenesOptions}
+                placeholder="Seleccionar almacen..."
+                emptyText="Sin almacenes disponibles"
+                disabled={stockInicialMutation.isPending}
+              />
+              {errors.almacen_id && (
+                <p className="error-msg">{errors.almacen_id.message}</p>
               )}
             </div>
 
@@ -486,13 +486,15 @@ function StockInicialModal({ open, onClose, onSaved }) {
               </label>
               <input
                 type="number"
-                min="0.01"
-                step="0.01"
+                min="1"
+                step="1"
                 className={`input ${errors.cantidad ? "input-error" : ""}`}
-                placeholder="0.00"
+                placeholder="0"
                 {...register("cantidad", {
                   required: "Requerido",
-                  min: { value: 0.01, message: "Debe ser mayor a 0" },
+                  min: { value: 1, message: "Debe ser un numero entero mayor a 0" },
+                  validate: (value) =>
+                    Number.isInteger(Number(value)) || "Debe ser un numero entero",
                 })}
               />
               {errors.cantidad && (

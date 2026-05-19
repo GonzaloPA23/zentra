@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Layers,
   Bell,
+  Settings,
   Truck,
 } from "lucide-react";
 
@@ -78,6 +79,12 @@ const NAV = [
     label: "Usuarios",
     to: "/usuarios",
     icon: Users,
+    roles: ["superadmin", "admin"],
+  },
+  {
+    label: "Config. Notificaciones",
+    to: "/configuracion/notificaciones",
+    icon: Settings,
     roles: ["superadmin", "admin"],
   },
   {

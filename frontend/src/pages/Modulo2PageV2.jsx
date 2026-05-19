@@ -7,7 +7,12 @@ import {
   ChevronUp,
   ClipboardCheck,
   FileSpreadsheet,
+  Loader2,
+  Pencil,
+  Plus,
+  Save,
   Truck,
+  X,
   XCircle,
 } from 'lucide-react';
 import api, { getMensajeError } from '../utils/api';
@@ -127,7 +132,191 @@ function DetalleExpandido({ row }) {
   );
 }
 
-function RegistroRow({ row, expanded, onToggle, canManageStates, onAprobar, onRechazar, onEnCamino, loading }) {
+function ApprovalDetailLine({ detail, index, value, onChange }) {
+  const [newLote, setNewLote] = useState({ codigo_lote: '', fecha_vencimiento: '' });
+  const [creating, setCreating] = useState(false);
+  const { data: lotes = [], refetch } = useQuery({
+    queryKey: ['aprobacion-lotes', detail.sku_id],
+    queryFn: () => api.get(`/catalogos/lotes?sku_id=${detail.sku_id}`).then((response) => response.data.datos || []),
+    enabled: !!detail.sku_id,
+  });
+
+  const handleCreateLote = async () => {
+    if (!newLote.codigo_lote.trim() || !newLote.fecha_vencimiento) {
+      toast.error('El lote nuevo requiere codigo y fecha de vencimiento');
+      return;
+    }
+    setCreating(true);
+    try {
+      const response = await api.post('/catalogos/lotes', {
+        sku_id: detail.sku_id,
+        codigo_lote: newLote.codigo_lote.trim(),
+        fecha_vencimiento: newLote.fecha_vencimiento,
+      });
+      await refetch();
+      onChange(index, {
+        ...value,
+        lote_id: String(response.data?.datos?.id || response.data?.id || ''),
+        fecha_vencimiento: newLote.fecha_vencimiento,
+      });
+      setNewLote({ codigo_lote: '', fecha_vencimiento: '' });
+      toast.success('Lote creado');
+    } catch (error) {
+      toast.error(getMensajeError(error));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const selectedLote = lotes.find((lote) => String(lote.id) === String(value.lote_id));
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="mb-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-3">
+        <div>
+          <span className="text-xs uppercase text-gray-500">Tipo Mercaderia</span>
+          <p className="font-medium text-gray-900">{detail.tipo_mercaderia_nombre || '-'}</p>
+        </div>
+        <div className="md:col-span-2">
+          <span className="text-xs uppercase text-gray-500">SKU</span>
+          <p className="font-medium text-gray-900">{detail.sku_nombre || '-'}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div>
+          <label className="label">Lote</label>
+          <select
+            className="input"
+            value={value.lote_id || ''}
+            onChange={(event) => {
+              const lote = lotes.find((item) => String(item.id) === event.target.value);
+              onChange(index, {
+                ...value,
+                lote_id: event.target.value,
+                fecha_vencimiento: lote?.fecha_vencimiento?.slice(0, 10) || '',
+              });
+            }}
+          >
+            <option value="">Seleccionar lote</option>
+            {lotes.map((lote) => (
+              <option key={lote.id} value={lote.id}>
+                {lote.codigo_lote} {lote.fecha_vencimiento ? `- vence ${lote.fecha_vencimiento.slice(0, 10)}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Fecha vencimiento</label>
+          <input
+            type="date"
+            className="input"
+            value={value.fecha_vencimiento || ''}
+            readOnly
+            disabled
+            title={selectedLote ? 'Fecha asociada al lote seleccionado' : 'Crea o selecciona un lote con vencimiento'}
+          />
+        </div>
+        <div>
+          <label className="label">Cantidad</label>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            className="input"
+            value={value.cantidad || ''}
+            onChange={(event) => onChange(index, { ...value, cantidad: event.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 border-t border-gray-200 pt-3 md:grid-cols-[1fr_180px_auto]">
+        <input
+          className="input"
+          placeholder="Codigo de lote nuevo"
+          value={newLote.codigo_lote}
+          onChange={(event) => setNewLote((prev) => ({ ...prev, codigo_lote: event.target.value }))}
+        />
+        <input
+          type="date"
+          className="input"
+          value={newLote.fecha_vencimiento}
+          onChange={(event) => setNewLote((prev) => ({ ...prev, fecha_vencimiento: event.target.value }))}
+        />
+        <button type="button" className="btn-secondary btn-sm" onClick={handleCreateLote} disabled={creating}>
+          {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Crear lote
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ApprovalEditModal({ row, onClose, onSave, loading }) {
+  const [fecha, setFecha] = useState(row.fecha ? String(row.fecha).slice(0, 10) : '');
+  const [detalles, setDetalles] = useState(() => (row.detalles || []).map((detail) => ({
+    tipo_mercaderia_id: detail.tipo_mercaderia_id,
+    sku_id: detail.sku_id,
+    lote_id: detail.lote_id ? String(detail.lote_id) : '',
+    fecha_vencimiento: detail.fecha_vencimiento ? String(detail.fecha_vencimiento).slice(0, 10) : '',
+    cantidad: Math.trunc(Number(detail.cantidad || 0)) || '',
+  })));
+
+  const updateDetail = (index, nextValue) => {
+    setDetalles((prev) => prev.map((item, itemIndex) => (itemIndex === index ? nextValue : item)));
+  };
+
+  const handleSubmit = () => {
+    if (!fecha) {
+      toast.error('La fecha es obligatoria');
+      return;
+    }
+    const invalidLine = detalles.find((detail) => !detail.lote_id || !detail.fecha_vencimiento || !Number.isInteger(Number(detail.cantidad)) || Number(detail.cantidad) <= 0);
+    if (invalidLine) {
+      toast.error('Cada linea requiere lote con vencimiento y cantidad entera mayor a 0');
+      return;
+    }
+    onSave(row.id, { fecha, detalles });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="modal-box max-w-5xl">
+        <div className="modal-header">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Editar antes de aprobar</h2>
+            <p className="text-xs text-gray-500">Registro #{row.id} - {row.nro_guia || 'sin guia'}</p>
+          </div>
+          <button type="button" className="btn-icon text-gray-400" onClick={onClose} disabled={loading}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body space-y-4">
+          <div className="max-w-xs">
+            <label className="label">Fecha</label>
+            <input type="date" className="input" value={fecha} onChange={(event) => setFecha(event.target.value)} />
+          </div>
+          {(row.detalles || []).map((detail, index) => (
+            <ApprovalDetailLine
+              key={detail.id || index}
+              detail={detail}
+              index={index}
+              value={detalles[index]}
+              onChange={updateDetail}
+            />
+          ))}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>Cancelar</button>
+          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={loading}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RegistroRow({ row, expanded, onToggle, canManageStates, onAprobar, onRechazar, onEnCamino, onEditApproval, loading }) {
   return (
     <>
       <tr className="cursor-pointer" onClick={() => onToggle(row.id)}>
@@ -156,6 +345,15 @@ function RegistroRow({ row, expanded, onToggle, canManageStates, onAprobar, onRe
             )}
             {canManageStates && (row.estado === 'pendiente' || row.estado === 'en_transito') && (
               <>
+                <button
+                  type="button"
+                  title="Editar antes de aprobar"
+                  disabled={loading}
+                  className="btn-icon text-amber-600 hover:bg-amber-50"
+                  onClick={() => onEditApproval(row)}
+                >
+                  <Pencil size={15} />
+                </button>
                 <button
                   type="button"
                   title="Aprobar"
@@ -202,6 +400,7 @@ function TablaModulo({
   onAprobar,
   onRechazar,
   onEnCamino,
+  onEditApproval,
   mutLoading,
 }) {
   const [expandedId, setExpandedId] = useState(null);
@@ -328,6 +527,7 @@ function TablaModulo({
                 onAprobar={onAprobar}
                 onRechazar={onRechazar}
                 onEnCamino={onEnCamino}
+                onEditApproval={onEditApproval}
                 loading={mutLoading}
               />
             ))}
@@ -343,6 +543,7 @@ export default function Modulo2PageV2() {
   const queryClient = useQueryClient();
   const [pendientesFilters, setPendientesFilters] = useState(EMPTY_TABLE_FILTERS);
   const [transitoFilters, setTransitoFilters] = useState(EMPTY_TABLE_FILTERS);
+  const [editingApprovalRow, setEditingApprovalRow] = useState(null);
 
   const canDownload = hasRole('superadmin', 'admin', 'supervisor');
   const canManageStates = hasRole('superadmin', 'admin', 'almacenero');
@@ -382,6 +583,18 @@ export default function Modulo2PageV2() {
         en_transito: 'Marcado como en camino',
       };
       toast.success(messages[estado] || 'Estado actualizado');
+    },
+    onError: (error) => toast.error(getMensajeError(error)),
+  });
+
+  const approvalEditMutation = useMutation({
+    mutationFn: ({ id, payload }) => api.patch(`/registros/${id}/aprobacion-detalles`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['registros'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['auditoria-registros'] });
+      setEditingApprovalRow(null);
+      toast.success('Detalle actualizado');
     },
     onError: (error) => toast.error(getMensajeError(error)),
   });
@@ -450,7 +663,8 @@ export default function Modulo2PageV2() {
         onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
         onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
         onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
-        mutLoading={estadoMutation.isPending}
+        onEditApproval={setEditingApprovalRow}
+        mutLoading={estadoMutation.isPending || approvalEditMutation.isPending}
       />
 
       <TablaModulo
@@ -468,12 +682,22 @@ export default function Modulo2PageV2() {
         onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
         onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
         onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
-        mutLoading={estadoMutation.isPending}
+        onEditApproval={setEditingApprovalRow}
+        mutLoading={estadoMutation.isPending || approvalEditMutation.isPending}
       />
 
       <p className="text-center text-xs text-gray-400">
         Se actualiza automáticamente cada 30 segundos · Haz clic en una fila para ver el detalle completo
       </p>
+
+      {editingApprovalRow && (
+        <ApprovalEditModal
+          row={editingApprovalRow}
+          onClose={() => setEditingApprovalRow(null)}
+          onSave={(id, payload) => approvalEditMutation.mutate({ id, payload })}
+          loading={approvalEditMutation.isPending}
+        />
+      )}
     </div>
   );
 }

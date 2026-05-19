@@ -36,13 +36,14 @@ app.use('/uploads', express.static(path.resolve(uploadPath)));
 app.get('/health', (req, res) => res.json({ ok: true, version: '1.0.0', timestamp: new Date().toISOString() }));
 
 // ── Rutas API ──────────────────────────────────────────────────────────────
-app.use('/api/auth',       require('./routes/auth'));
-app.use('/api/empresas',   require('./routes/empresas'));
-app.use('/api/usuarios',   require('./routes/usuarios'));
-app.use('/api/catalogos',  require('./routes/catalogos'));
-app.use('/api/registros',  require('./routes/registros'));
-app.use('/api/dashboard',  require('./routes/dashboard'));
-app.use('/api/auditoria',  require('./routes/auditoria'));
+app.use('/api/auth',           require('./routes/auth'));
+app.use('/api/empresas',       require('./routes/empresas'));
+app.use('/api/usuarios',       require('./routes/usuarios'));
+app.use('/api/catalogos',      require('./routes/catalogos'));
+app.use('/api/registros',      require('./routes/registros'));
+app.use('/api/dashboard',      require('./routes/dashboard'));
+app.use('/api/auditoria',      require('./routes/auditoria'));
+app.use('/api/notificaciones', require('./routes/notificaciones'));
 
 // ── 404 ────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' }));

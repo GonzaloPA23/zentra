@@ -44,6 +44,25 @@ export function toSafeDateInputValue(value, fallback = '') {
   return date ? format(date, 'yyyy-MM-dd') : fallback;
 }
 
+export function getDateInputValueForTimeZone(
+  value = new Date(),
+  timeZone = 'America/Lima',
+) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+export function getPeruTodayDateInputValue() {
+  return getDateInputValueForTimeZone(new Date(), 'America/Lima');
+}
+
 export function toSafeLocaleDateString(value, locale = 'es-PE', fallback = '-') {
   const date = normalizeDateInput(value);
   return date ? date.toLocaleDateString(locale) : fallback;

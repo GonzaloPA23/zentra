@@ -1164,6 +1164,51 @@ async function persistMissingLoteDates(executor, details) {
   }
 }
 
+async function updateRegistroHeaderAndDetails(executor, registroId, headerValues, detalles) {
+  await executor.query(
+    `UPDATE registros SET
+       fecha=?,
+       ciudad_id=?,
+       almacen_origen_id=?,
+       almacen_destino_id=?,
+       categoria_id=?,
+       accion=?,
+       tipo_accion=?,
+       personal_receptor_id=?,
+       indicador_id=?,
+       tipo_mercaderia_id=?,
+       sku_id=?,
+       lote_id=?,
+       fecha_vencimiento=?,
+       cantidad=?,
+       nro_guia=?,
+       observaciones=?
+     WHERE id=?`,
+    [
+      headerValues.fecha,
+      headerValues.ciudad_id,
+      headerValues.almacen_origen_id,
+      headerValues.almacen_destino_id,
+      headerValues.categoria_id,
+      headerValues.accion,
+      headerValues.tipo_accion,
+      headerValues.personal_receptor_id,
+      headerValues.indicador_id,
+      headerValues.tipo_mercaderia_id,
+      headerValues.sku_id,
+      headerValues.lote_id,
+      headerValues.fecha_vencimiento,
+      headerValues.cantidad,
+      headerValues.nro_guia,
+      headerValues.observaciones,
+      registroId,
+    ],
+  );
+
+  await syncRegistroDetails(executor, registroId, detalles);
+  await persistMissingLoteDates(executor, detalles);
+}
+
 async function validateRegistroPayloadV2(
   executor,
   req,
@@ -1383,7 +1428,7 @@ async function validateRegistroPayloadV2(
     const tipoMercaderiaId = parsePositiveInt(detail?.tipo_mercaderia_id);
     const skuId = parsePositiveInt(detail?.sku_id);
     const loteId = parsePositiveInt(detail?.lote_id);
-    const cantidad = parsePositiveFloat(detail?.cantidad);
+    const cantidad = parsePositiveInt(detail?.cantidad);
 
     if (!tipoMercaderiaId)
       throw new Error(`Tipo de mercaderia requerido en la linea ${lineNumber}`);
@@ -1678,7 +1723,7 @@ async function validateRegistroPayload(
     const tipoMercaderiaId = parsePositiveInt(detail?.tipo_mercaderia_id);
     const skuId = parsePositiveInt(detail?.sku_id);
     const loteId = parsePositiveInt(detail?.lote_id);
-    const cantidad = parsePositiveFloat(detail?.cantidad);
+    const cantidad = parsePositiveInt(detail?.cantidad);
 
     if (!tipoMercaderiaId)
       throw new Error(`Tipo de mercadería requerido en la línea ${lineNumber}`);
@@ -1772,9 +1817,10 @@ async function validateStockInitializationPayload(
     payload.sku || payload.sku_nombre || payload.nombre,
   );
   const loteId = parsePositiveInt(payload.lote_id);
-  const cantidad = allowZeroQuantity
-    ? parseNonNegativeFloat(payload.cantidad)
-    : parsePositiveFloat(payload.cantidad);
+  const rawCantidad = Number(payload.cantidad);
+  const cantidad = Number.isInteger(rawCantidad) && rawCantidad >= (allowZeroQuantity ? 0 : 1)
+    ? rawCantidad
+    : null;
   const observaciones = normalizeOptionalString(payload.observaciones);
   const codigoLote = normalizeOptionalString(
     payload.codigo_lote || payload.lote,
@@ -2669,7 +2715,36 @@ function mapRegistroExportRows(registros = [], { req } = {}) {
   return rows;
 }
 
-function buildStockReportMovementLabel(row, delta) {
+function toStockReportInteger(value) {
+  return Math.trunc(Number(value || 0));
+}
+
+function getStockReportDirection(row, delta, sameWarehouse = false) {
+  if (sameWarehouse) {
+    const tipoAccion = String(row.tipo_accion || "")
+      .trim()
+      .toUpperCase();
+    return tipoAccion === "ENTRADA" ? "INGRESO" : "SALIDA";
+  }
+
+  return Number(delta || 0) < 0 ? "SALIDA" : "INGRESO";
+}
+
+function shouldIncludeSameWarehouseMovement(movement) {
+  const tipoMovimiento = String(movement.tipo_movimiento || "").toUpperCase();
+  if (tipoMovimiento === "STOCK_INITIAL") return true;
+
+  const tipoAccion = String(movement.tipo_accion || "")
+    .trim()
+    .toUpperCase();
+
+  if (tipoAccion === "ENTRADA") {
+    return ["INGRESO_APROBADO", "APROBACION"].includes(tipoMovimiento);
+  }
+  return ["SALIDA_TRANSITO", "APROBACION"].includes(tipoMovimiento);
+}
+
+function buildStockReportMovementLabel(row, delta, sameWarehouse = false) {
   if (String(row.tipo_movimiento || "").toUpperCase() === "STOCK_INITIAL") {
     return "CARGA STOCK INICIAL";
   }
@@ -2680,7 +2755,8 @@ function buildStockReportMovementLabel(row, delta) {
   const indicador = String(row.indicador_nombre || "")
     .trim()
     .toUpperCase();
-  const direction = delta >= 0 ? "INGRESO" : "SALIDA";
+
+  const direction = getStockReportDirection(row, delta, sameWarehouse);
 
   if (accion === "MERMA") {
     return "MERMA";
@@ -2844,14 +2920,14 @@ function buildStockInitialAuditRows(
         fecha_vencimiento: detail.fecha_vencimiento
           ? new Date(detail.fecha_vencimiento)
           : null,
-        cantidad_cargada: Number(detail.cantidad || 0),
+        cantidad_cargada: Math.trunc(Number(detail.cantidad || 0)),
         cantidad_objetivo:
           detail.cantidad_objetivo !== null &&
           detail.cantidad_objetivo !== undefined
-            ? Number(detail.cantidad_objetivo || 0)
+            ? Math.trunc(Number(detail.cantidad_objetivo || 0))
             : null,
-        stock_anterior: Number(detail.stock_anterior || 0),
-        stock_actual: Number(detail.stock_actual || 0),
+        stock_anterior: Math.trunc(Number(detail.stock_anterior || 0)),
+        stock_actual: Math.trunc(Number(detail.stock_actual || 0)),
         observaciones: detail.observaciones || "",
         ip: auditRow.ip || "",
       };
@@ -2894,20 +2970,42 @@ function buildStockReportRows(
   movements.forEach((movement) => {
     const movementDate = toMovementDateTime(movement.movimiento_fecha);
     const effects = getMovementEffects(movement.tipo_movimiento);
-    const quantity = Number(movement.cantidad || 0);
+    const quantity = toStockReportInteger(movement.cantidad);
     if (!quantity) return;
 
     const warehouseEntries = [];
-    if (effects.originDelta && movement.almacen_origen_id) {
+    const originId = Number(movement.almacen_origen_id || 0);
+    const destinationId = Number(movement.almacen_destino_id || 0);
+    const sameWarehouse =
+      originId && destinationId && originId === destinationId;
+
+    if (sameWarehouse) {
+      if (!shouldIncludeSameWarehouseMovement(movement)) return;
+
+      const direction = getStockReportDirection(movement, 0, true);
       warehouseEntries.push({
-        almacen_id: Number(movement.almacen_origen_id),
+        almacen_id: originId,
+        almacen_nombre:
+          movement.almacen_origen_nombre ||
+          movement.almacen_destino_nombre ||
+          "",
+        delta: direction === "INGRESO" ? quantity : quantity * -1,
+        sameWarehouse: true,
+      });
+    } else if (effects.originDelta && movement.almacen_origen_id) {
+      warehouseEntries.push({
+        almacen_id: originId,
         almacen_nombre: movement.almacen_origen_nombre || "",
         delta: quantity * effects.originDelta,
       });
     }
-    if (effects.destinationDelta && movement.almacen_destino_id) {
+    if (
+      !sameWarehouse &&
+      effects.destinationDelta &&
+      movement.almacen_destino_id
+    ) {
       warehouseEntries.push({
-        almacen_id: Number(movement.almacen_destino_id),
+        almacen_id: destinationId,
         almacen_nombre: movement.almacen_destino_nombre || "",
         delta: quantity * effects.destinationDelta,
       });
@@ -2950,13 +3048,18 @@ function buildStockReportRows(
         return;
       }
 
-      const label = buildStockReportMovementLabel(movement, entry.delta);
+      const label = buildStockReportMovementLabel(
+        movement,
+        entry.delta,
+        entry.sameWarehouse,
+      );
       if (!movementLabelSet.has(label)) {
         movementLabelSet.add(label);
         movementLabels.push(label);
       }
 
-      reportRow[label] = Number(reportRow[label] || 0) + Math.abs(entry.delta);
+      reportRow[label] =
+        toStockReportInteger(reportRow[label]) + Math.abs(entry.delta);
       reportRow._period_delta += entry.delta;
     });
   });
@@ -2964,9 +3067,10 @@ function buildStockReportRows(
   const rows = [...reportMap.values()]
     .map((row) => ({
       ...row,
-      stock_inicial: Number(row.stock_inicial || 0),
-      stock_final:
+      stock_inicial: toStockReportInteger(row.stock_inicial),
+      stock_final: toStockReportInteger(
         Number(row.stock_inicial || 0) + Number(row._period_delta || 0),
+      ),
     }))
     .filter((row) => {
       const hasMovementValues = movementLabels.some(
@@ -3310,19 +3414,19 @@ router.get(
           header: "SALDO INICIAL",
           key: "stock_inicial",
           width: 14,
-          type: "number",
+          type: "integer",
         },
         ...movementLabels.map((label) => ({
           header: label,
           key: label,
           width: Math.max(16, label.length + 4),
-          type: "number",
+          type: "integer",
         })),
         {
           header: "STOCK FINAL",
           key: "stock_final",
           width: 14,
-          type: "number",
+          type: "integer",
         },
       ];
 
@@ -3333,7 +3437,7 @@ router.get(
         rows: rows.map((row) => {
           const exportRow = { ...row };
           movementLabels.forEach((label) => {
-            exportRow[label] = Number(row[label] || 0);
+            exportRow[label] = toStockReportInteger(row[label]);
           });
           return exportRow;
         }),
@@ -3969,6 +4073,105 @@ router.put(
       res.status(err.statusCode || 400).json({
         ok: false,
         mensaje: err.message || "No se pudo actualizar el registro",
+      });
+    } finally {
+      connection.release();
+    }
+  },
+);
+
+router.patch(
+  "/:id/aprobacion-detalles",
+  requireRol("superadmin", "admin", "almacenero"),
+  async (req, res) => {
+    const connection = await pool.getConnection();
+
+    try {
+      const id = parsePositiveInt(req.params.id);
+      if (!id) return sendBadRequest(res, "Id invalido");
+
+      const existing = await getRegistroById(connection, req, id);
+      if (!existing) {
+        return res
+          .status(404)
+          .json({ ok: false, mensaje: "Registro no encontrado" });
+      }
+      if (!["pendiente", "en_transito"].includes(existing.estado)) {
+        return sendForbidden(
+          res,
+          "Solo se puede editar antes de aprobar o rechazar",
+        );
+      }
+
+      const payload = parseRegistroBody(
+        {
+          fecha: req.body?.fecha,
+          detalles: req.body?.detalles,
+        },
+        existing,
+      );
+
+      await connection.beginTransaction();
+
+      const hadStockMovements = await registroHasStockMovements(connection, id);
+      if (hadStockMovements) {
+        await reverseRecordedStockMovements(connection, id);
+      }
+
+      const validated = await validateRegistroPayload(
+        connection,
+        req,
+        payload,
+        { currentFotoGuia: existing.foto_guia || null },
+      );
+      const headerValues = buildHeaderValues(validated, validated.detalles);
+
+      await updateRegistroHeaderAndDetails(
+        connection,
+        id,
+        headerValues,
+        validated.detalles,
+      );
+
+      const isMolitaliaEntry = isTgMolitaliaIndicator(
+        existing.indicador_nombre || existing.indicador || "",
+      );
+      if (existing.estado === "en_transito" && !isMolitaliaEntry) {
+        const updatedForStock = await getRegistroById(connection, req, id);
+        await applyStockMovementBatch(
+          connection,
+          updatedForStock,
+          "SALIDA_TRANSITO",
+          req.usuario.id,
+        );
+      }
+
+      const updatedRegistro = await getRegistroById(connection, req, id);
+      await insertAuditLog(connection, {
+        empresa_id: req.empresa_id,
+        usuario_id: req.usuario.id,
+        accion: "UPDATE",
+        tabla: "registros",
+        registro_id: id,
+        detalle: buildRegistroAuditSnapshot(updatedRegistro, {
+          summary: "Edito detalle antes de aprobacion",
+          previous_estado: existing.estado,
+        }),
+        ip: req.ip,
+      });
+
+      await connection.commit();
+      res.json({
+        ok: true,
+        mensaje: "Detalle actualizado para aprobacion",
+        datos: updatedRegistro,
+      });
+    } catch (err) {
+      await connection.rollback();
+      console.error(err);
+      res.status(err.statusCode || 400).json({
+        ok: false,
+        mensaje: err.message || "No se pudo actualizar el detalle",
       });
     } finally {
       connection.release();

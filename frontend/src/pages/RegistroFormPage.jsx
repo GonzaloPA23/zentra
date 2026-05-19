@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import api, { getMensajeError } from "../utils/api";
 import SearchableSelect from "../components/SearchableSelect";
-import { toSafeDateInputValue } from "../utils/date";
+import { getPeruTodayDateInputValue, toSafeDateInputValue } from "../utils/date";
 import { getBlobErrorMessage } from "../utils/download";
 
 const ACCIONES = ["MERMA", "DESPACHO A CANJISTAS", "OTROS MOVIMIENTOS"];
@@ -589,13 +589,13 @@ function DetalleRow({
           </label>
           <input
             type="number"
-            min="0.01"
-            step="0.01"
+            min="1"
+            step="1"
             className={`input ${errors?.cantidad ? "input-error" : ""}`}
-            placeholder="0.00"
+            placeholder="0"
             {...register(`detalles.${index}.cantidad`, {
               required: "Requerido",
-              min: { value: 0.01, message: "Debe ser mayor a 0" },
+              min: { value: 1, message: "Debe ser un número entero mayor a 0" },
             })}
           />
           {errors?.cantidad && (
@@ -659,7 +659,7 @@ export default function RegistroFormPage() {
     formState: { errors },
   } = useForm({
     defaultValues: {
-      fecha: new Date().toISOString().split("T")[0],
+      fecha: getPeruTodayDateInputValue(),
       zona: "",
       ciudad_id: "",
       almacen_origen_id: "",
