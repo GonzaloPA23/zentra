@@ -118,6 +118,8 @@ export default function GenericCatalogPage({
     {
       header: "Estado",
       width: 80,
+      filterValue: (row) => (row.activo ? "Activo" : "Inactivo"),
+      sortValue: (row) => (row.activo ? "Activo" : "Inactivo"),
       render: (row) =>
         row.activo !== undefined ? (
           <span className={row.activo ? "badge-green" : "badge-red"}>

@@ -18,6 +18,7 @@ import {
 import api, { getMensajeError } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import SortableFilterHeader from '../components/SortableFilterHeader';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { downloadBlobResponse, getBlobErrorMessage } from '../utils/download';
 import { formatSafeDate } from '../utils/date';
 
@@ -132,18 +133,29 @@ function DetalleExpandido({ row }) {
   );
 }
 
-function ApprovalDetailLine({ detail, index, value, onChange }) {
+function parseFlag(value) {
+  return value === true || value === 1 || value === '1';
+}
+
+function ApprovalDetailLine({ detail, index, value, onChange, almacenOrigenId }) {
   const [newLote, setNewLote] = useState({ codigo_lote: '', fecha_vencimiento: '' });
   const [creating, setCreating] = useState(false);
+  const skuManejaLote = parseFlag(detail.tiene_lote);
+  const skuManejaVencimiento = parseFlag(detail.tiene_vencimiento);
   const { data: lotes = [], refetch } = useQuery({
-    queryKey: ['aprobacion-lotes', detail.sku_id],
-    queryFn: () => api.get(`/catalogos/lotes?sku_id=${detail.sku_id}`).then((response) => response.data.datos || []),
-    enabled: !!detail.sku_id,
+    queryKey: ['aprobacion-lotes', detail.sku_id, almacenOrigenId || ''],
+    queryFn: () => {
+      const params = new URLSearchParams({ sku_id: detail.sku_id });
+      if (almacenOrigenId) params.set('almacen_id', almacenOrigenId);
+      return api.get(`/catalogos/lotes?${params.toString()}`).then((response) => response.data.datos || []);
+    },
+    enabled: !!detail.sku_id && !!almacenOrigenId && skuManejaLote,
   });
 
   const handleCreateLote = async () => {
-    if (!newLote.codigo_lote.trim() || !newLote.fecha_vencimiento) {
-      toast.error('El lote nuevo requiere codigo y fecha de vencimiento');
+    if (!skuManejaLote) return;
+    if (!newLote.codigo_lote.trim() || (skuManejaVencimiento && !newLote.fecha_vencimiento)) {
+      toast.error(skuManejaVencimiento ? 'El lote nuevo requiere codigo y fecha de vencimiento' : 'El lote nuevo requiere codigo');
       return;
     }
     setCreating(true);
@@ -151,13 +163,13 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
       const response = await api.post('/catalogos/lotes', {
         sku_id: detail.sku_id,
         codigo_lote: newLote.codigo_lote.trim(),
-        fecha_vencimiento: newLote.fecha_vencimiento,
+        fecha_vencimiento: newLote.fecha_vencimiento || null,
       });
       await refetch();
       onChange(index, {
         ...value,
         lote_id: String(response.data?.datos?.id || response.data?.id || ''),
-        fecha_vencimiento: newLote.fecha_vencimiento,
+        fecha_vencimiento: newLote.fecha_vencimiento || '',
       });
       setNewLote({ codigo_lote: '', fecha_vencimiento: '' });
       toast.success('Lote creado');
@@ -184,7 +196,7 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <div>
+        {skuManejaLote ? <div>
           <label className="label">Lote</label>
           <select
             className="input"
@@ -205,8 +217,8 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
               </option>
             ))}
           </select>
-        </div>
-        <div>
+        </div> : null}
+        {skuManejaLote ? <div>
           <label className="label">Fecha vencimiento</label>
           <input
             type="date"
@@ -216,7 +228,7 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
             disabled
             title={selectedLote ? 'Fecha asociada al lote seleccionado' : 'Crea o selecciona un lote con vencimiento'}
           />
-        </div>
+        </div> : null}
         <div>
           <label className="label">Cantidad</label>
           <input
@@ -230,7 +242,7 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 border-t border-gray-200 pt-3 md:grid-cols-[1fr_180px_auto]">
+      {skuManejaLote ? <div className="mt-3 grid grid-cols-1 gap-3 border-t border-gray-200 pt-3 md:grid-cols-[1fr_180px_auto]">
         <input
           className="input"
           placeholder="Codigo de lote nuevo"
@@ -246,7 +258,11 @@ function ApprovalDetailLine({ detail, index, value, onChange }) {
         <button type="button" className="btn-secondary btn-sm" onClick={handleCreateLote} disabled={creating}>
           {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Crear lote
         </button>
-      </div>
+      </div> : (
+        <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-gray-500">
+          Este SKU no maneja lote ni fecha de vencimiento; solo se modifica la cantidad.
+        </p>
+      )}
     </div>
   );
 }
@@ -270,9 +286,19 @@ function ApprovalEditModal({ row, onClose, onSave, loading }) {
       toast.error('La fecha es obligatoria');
       return;
     }
-    const invalidLine = detalles.find((detail) => !detail.lote_id || !detail.fecha_vencimiento || !Number.isInteger(Number(detail.cantidad)) || Number(detail.cantidad) <= 0);
+    const invalidLine = detalles.find((detail, index) => {
+      const original = row.detalles?.[index] || {};
+      const requiresLote = parseFlag(original.tiene_lote);
+      const requiresVencimiento = parseFlag(original.tiene_vencimiento);
+      return (
+        (requiresLote && !detail.lote_id) ||
+        (requiresLote && requiresVencimiento && !detail.fecha_vencimiento) ||
+        !Number.isInteger(Number(detail.cantidad)) ||
+        Number(detail.cantidad) <= 0
+      );
+    });
     if (invalidLine) {
-      toast.error('Cada linea requiere lote con vencimiento y cantidad entera mayor a 0');
+      toast.error('Revisa las lineas: lote/vencimiento solo aplica a SKUs que lo manejan, y la cantidad debe ser entera mayor a 0');
       return;
     }
     onSave(row.id, { fecha, detalles });
@@ -302,6 +328,7 @@ function ApprovalEditModal({ row, onClose, onSave, loading }) {
               index={index}
               value={detalles[index]}
               onChange={updateDetail}
+              almacenOrigenId={row.almacen_origen_id}
             />
           ))}
         </div>
@@ -544,6 +571,7 @@ export default function Modulo2PageV2() {
   const [pendientesFilters, setPendientesFilters] = useState(EMPTY_TABLE_FILTERS);
   const [transitoFilters, setTransitoFilters] = useState(EMPTY_TABLE_FILTERS);
   const [editingApprovalRow, setEditingApprovalRow] = useState(null);
+  const [approvalToConfirm, setApprovalToConfirm] = useState(null);
 
   const canDownload = hasRole('superadmin', 'admin', 'supervisor');
   const canManageStates = hasRole('superadmin', 'admin', 'almacenero');
@@ -583,9 +611,19 @@ export default function Modulo2PageV2() {
         en_transito: 'Marcado como en camino',
       };
       toast.success(messages[estado] || 'Estado actualizado');
+      if (estado === 'aprobado') setApprovalToConfirm(null);
     },
     onError: (error) => toast.error(getMensajeError(error)),
   });
+
+  const requestApproval = (id) => {
+    setApprovalToConfirm(id);
+  };
+
+  const confirmApproval = () => {
+    if (!approvalToConfirm) return;
+    estadoMutation.mutate({ id: approvalToConfirm, estado: 'aprobado' });
+  };
 
   const approvalEditMutation = useMutation({
     mutationFn: ({ id, payload }) => api.patch(`/registros/${id}/aprobacion-detalles`, payload),
@@ -660,7 +698,7 @@ export default function Modulo2PageV2() {
         onExport={() => exportSection('en_transito', transitoFilters, `zentra_guias_en_camino_${Date.now()}.xlsx`)}
         canDownload={canDownload}
         canManageStates={canManageStates}
-        onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
+        onAprobar={requestApproval}
         onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
         onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
         onEditApproval={setEditingApprovalRow}
@@ -679,7 +717,7 @@ export default function Modulo2PageV2() {
         onExport={() => exportSection('pendiente', pendientesFilters, `zentra_aprobacion_ingresos_${Date.now()}.xlsx`)}
         canDownload={canDownload}
         canManageStates={canManageStates}
-        onAprobar={(id) => estadoMutation.mutate({ id, estado: 'aprobado' })}
+        onAprobar={requestApproval}
         onRechazar={(id) => estadoMutation.mutate({ id, estado: 'rechazado' })}
         onEnCamino={(id) => estadoMutation.mutate({ id, estado: 'en_transito' })}
         onEditApproval={setEditingApprovalRow}
@@ -698,6 +736,18 @@ export default function Modulo2PageV2() {
           loading={approvalEditMutation.isPending}
         />
       )}
+
+      <ConfirmDialog
+        open={!!approvalToConfirm}
+        onClose={() => !estadoMutation.isPending && setApprovalToConfirm(null)}
+        onConfirm={confirmApproval}
+        title="Confirmar aprobación"
+        message="Estás por aprobar este registro. Al confirmar se actualizará el estado y el impacto correspondiente en stock."
+        loading={estadoMutation.isPending}
+        confirmLabel="Sí, aprobar"
+        loadingLabel="Aprobando..."
+        confirmClassName="btn-primary"
+      />
     </div>
   );
 }

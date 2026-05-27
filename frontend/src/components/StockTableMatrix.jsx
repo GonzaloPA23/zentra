@@ -205,6 +205,7 @@ function StockTableMatrix({ data, isLoading }) {
               <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase text-gray-500">
                 <tr>
                   <th className="px-3 py-3">Almacen</th>
+                  <th className="px-3 py-3">Zona</th>
                   <th className="px-3 py-3">Categoria</th>
                   <th className="px-3 py-3">Tipo mercaderia</th>
                   <th className="px-3 py-3">Cod. SKU</th>
@@ -218,6 +219,7 @@ function StockTableMatrix({ data, isLoading }) {
                 {rows.map((row) => (
                   <tr key={`${row.almacen_id}-${row.sku_id}-${row.lote_id || 'sin-lote'}`} className="border-t border-gray-100 hover:bg-blue-50">
                     <td className="px-3 py-2 font-medium text-gray-900">{row.almacen || '-'}</td>
+                    <td className="px-3 py-2">{row.zona || '-'}</td>
                     <td className="px-3 py-2">{row.categoria || '-'}</td>
                     <td className="px-3 py-2">{row.tipo_mercaderia || '-'}</td>
                     <td className="px-3 py-2">{row.sku_codigo || '-'}</td>

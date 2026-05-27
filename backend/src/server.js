@@ -44,6 +44,7 @@ app.use('/api/registros',      require('./routes/registros'));
 app.use('/api/dashboard',      require('./routes/dashboard'));
 app.use('/api/auditoria',      require('./routes/auditoria'));
 app.use('/api/notificaciones', require('./routes/notificaciones'));
+app.use('/api/tg-interno',     require('./routes/tg-interno'));
 
 // ── 404 ────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' }));

@@ -90,7 +90,7 @@ export default function EmpresasPage() {
   const columns = [
     { header: '#', accessor: 'id', width: 60 },
     {
-      header: 'Empresa', searchable: true,
+      header: 'Empresa', accessor: 'nombre', searchable: true,
       render: r => (
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-primary-100 rounded-lg flex items-center justify-center">
@@ -101,8 +101,8 @@ export default function EmpresasPage() {
       ),
     },
     { header: 'RUC', accessor: 'ruc', render: r => r.ruc || '—' },
-    { header: 'Estado', render: r => <span className={r.activo ? 'badge-green' : 'badge-red'}>{r.activo ? 'Activa' : 'Inactiva'}</span> },
-    { header: 'Creada', render: r => r.created_at ? new Date(r.created_at).toLocaleDateString('es-PE') : '—' },
+    { header: 'Estado', filterValue: r => r.activo ? 'Activa' : 'Inactiva', sortValue: r => r.activo ? 'Activa' : 'Inactiva', render: r => <span className={r.activo ? 'badge-green' : 'badge-red'}>{r.activo ? 'Activa' : 'Inactiva'}</span> },
+    { header: 'Creada', accessor: 'created_at', render: r => r.created_at ? new Date(r.created_at).toLocaleDateString('es-PE') : '—' },
     {
       header: 'Acciones', width: 100,
       render: r => (

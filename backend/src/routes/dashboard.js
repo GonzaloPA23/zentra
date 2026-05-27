@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware, empresaMiddleware } = require('../middleware/auth');
 const { getAssignedWarehouseIds, getWarehouseScope } = require('../utils/warehouseScope');
+const { parseAuditDetail } = require('../utils/audit');
 
 const router = express.Router();
 router.use(authMiddleware, empresaMiddleware);
@@ -9,6 +10,15 @@ router.use(authMiddleware, empresaMiddleware);
 const LOW_STOCK_CRITICAL_THRESHOLD = 100;
 const LOW_STOCK_WARNING_THRESHOLD = 200;
 const ALERT_FETCH_LIMIT = 500;
+const STOCK_MOVEMENT_EFFECTS = {
+  APROBACION: { originDelta: -1, destinationDelta: 1 },
+  SALIDA_TRANSITO: { originDelta: -1, destinationDelta: 0 },
+  INGRESO_APROBADO: { originDelta: 0, destinationDelta: 1 },
+  REVERSA_RECHAZO: { originDelta: 1, destinationDelta: 0 },
+  STOCK_INITIAL: { originDelta: 0, destinationDelta: 1 },
+  TG_INTERNO_SALIDA: { originDelta: -1, destinationDelta: 0 },
+  TG_INTERNO_ENTRADA: { originDelta: 0, destinationDelta: 1 },
+};
 const DETAIL_COUNT_EXPR = 'COALESCE((SELECT COUNT(*) FROM registro_detalles rd_count WHERE rd_count.registro_id = r.id), 0)';
 const PRIMARY_SKU_EXPR = `COALESCE((
   SELECT MIN(sk_detail.nombre)
@@ -16,6 +26,218 @@ const PRIMARY_SKU_EXPR = `COALESCE((
   JOIN skus sk_detail ON sk_detail.id = rd_sku.sku_id
   WHERE rd_sku.registro_id = r.id
 ), sk.nombre, '')`;
+
+function getZonaExpr(cityAlias = 'ci') {
+  return `CASE WHEN UPPER(${cityAlias}.nombre)='LIMA' THEN 'LIMA' ELSE 'PROVINCIA' END`;
+}
+
+function toStockInteger(value) {
+  return Math.trunc(Number(value || 0));
+}
+
+function getMovementEffects(tipoMovimiento = 'APROBACION') {
+  return STOCK_MOVEMENT_EFFECTS[tipoMovimiento] || STOCK_MOVEMENT_EFFECTS.APROBACION;
+}
+
+function shouldIncludeSameWarehouseMovement(movement) {
+  const tipoMovimiento = String(movement.tipo_movimiento || '').toUpperCase();
+  if (tipoMovimiento === 'STOCK_INITIAL') return true;
+  if (['TG_INTERNO_ENTRADA', 'TG_INTERNO_SALIDA'].includes(tipoMovimiento)) return true;
+
+  const tipoAccion = String(movement.tipo_accion || '').trim().toUpperCase();
+  if (tipoAccion === 'ENTRADA') {
+    return ['INGRESO_APROBADO', 'APROBACION'].includes(tipoMovimiento);
+  }
+  return ['SALIDA_TRANSITO', 'APROBACION'].includes(tipoMovimiento);
+}
+
+function getSameWarehouseDirection(movement) {
+  const tipoMovimiento = String(movement.tipo_movimiento || '').toUpperCase();
+  if (tipoMovimiento === 'TG_INTERNO_ENTRADA') return 1;
+  if (tipoMovimiento === 'TG_INTERNO_SALIDA') return -1;
+  return String(movement.tipo_accion || '').trim().toUpperCase() === 'ENTRADA' ? 1 : -1;
+}
+
+function buildDashboardStockRows(movements = [], scopedWarehouseIds = []) {
+  const scopedWarehouseSet = scopedWarehouseIds.length
+    ? new Set(scopedWarehouseIds.map((id) => Number(id)))
+    : null;
+  const rowsByKey = new Map();
+
+  movements.forEach((movement) => {
+    const quantity = Number(movement.cantidad || 0);
+    if (!quantity) return;
+
+    const effects = getMovementEffects(movement.tipo_movimiento);
+    const originId = Number(movement.almacen_origen_id || 0);
+    const destinationId = Number(movement.almacen_destino_id || 0);
+    const sameWarehouse = originId && destinationId && originId === destinationId;
+    const entries = [];
+
+    if (sameWarehouse) {
+      if (!shouldIncludeSameWarehouseMovement(movement)) return;
+      entries.push({
+        almacen_id: originId,
+        almacen: movement.almacen_origen_nombre || movement.almacen_destino_nombre || '',
+        zona: movement.zona || '',
+        delta: quantity * getSameWarehouseDirection(movement),
+      });
+    } else {
+      if (effects.originDelta && originId) {
+        entries.push({
+          almacen_id: originId,
+          almacen: movement.almacen_origen_nombre || '',
+          zona: movement.zona_origen || movement.zona || '',
+          delta: quantity * effects.originDelta,
+        });
+      }
+      if (effects.destinationDelta && destinationId) {
+        entries.push({
+          almacen_id: destinationId,
+          almacen: movement.almacen_destino_nombre || '',
+          zona: movement.zona_destino || movement.zona || '',
+          delta: quantity * effects.destinationDelta,
+        });
+      }
+    }
+
+    entries.forEach((entry) => {
+      if (scopedWarehouseSet && !scopedWarehouseSet.has(Number(entry.almacen_id))) return;
+      const loteKey = movement.lote_id ? String(movement.lote_id) : 'sin-lote';
+      const key = [entry.almacen_id, movement.sku_id, loteKey].join('|');
+
+      if (!rowsByKey.has(key)) {
+        rowsByKey.set(key, {
+          almacen_id: Number(entry.almacen_id),
+          almacen: entry.almacen,
+          zona: entry.zona,
+          categoria_id: movement.categoria_id ? Number(movement.categoria_id) : null,
+          categoria: movement.categoria_nombre || '',
+          tipo_mercaderia_id: movement.tipo_mercaderia_id ? Number(movement.tipo_mercaderia_id) : null,
+          tipo_mercaderia: movement.tipo_mercaderia_nombre || '',
+          sku_id: Number(movement.sku_id),
+          sku_codigo: movement.sku_codigo || '',
+          sku: movement.sku_nombre || '',
+          lote_id: movement.lote_id ? Number(movement.lote_id) : null,
+          lote: movement.codigo_lote || 'SIN LOTE',
+          fecha_vencimiento: movement.lote_fecha_vencimiento || null,
+          stock_final: 0,
+        });
+      }
+
+      const stockRow = rowsByKey.get(key);
+      if (!stockRow.sku_codigo && movement.sku_codigo) stockRow.sku_codigo = movement.sku_codigo;
+      if (!stockRow.sku && movement.sku_nombre) stockRow.sku = movement.sku_nombre;
+      if (!stockRow.categoria && movement.categoria_nombre) stockRow.categoria = movement.categoria_nombre;
+      if (!stockRow.tipo_mercaderia && movement.tipo_mercaderia_nombre) stockRow.tipo_mercaderia = movement.tipo_mercaderia_nombre;
+      stockRow.stock_final += entry.delta;
+    });
+  });
+
+  return [...rowsByKey.values()]
+    .map((row) => ({ ...row, stock_final: toStockInteger(row.stock_final) }))
+    .filter((row) => Number(row.stock_final || 0) !== 0)
+    .sort((a, b) =>
+      String(a.almacen).localeCompare(String(b.almacen)) ||
+      String(a.categoria).localeCompare(String(b.categoria)) ||
+      String(a.tipo_mercaderia).localeCompare(String(b.tipo_mercaderia)) ||
+      String(a.sku).localeCompare(String(b.sku)) ||
+      String(a.lote).localeCompare(String(b.lote))
+    );
+}
+
+async function loadSkuReferenceMap(executor = pool, empresaId = null) {
+  let query = `SELECT
+      sk.id,
+      sk.codigo,
+      sk.nombre,
+      sk.categoria_id,
+      ca.nombre AS categoria_nombre,
+      sk.tipo_mercaderia_id,
+      tm.nombre AS tipo_mercaderia_nombre
+    FROM skus sk
+    LEFT JOIN categorias ca ON ca.id = sk.categoria_id
+    LEFT JOIN tipos_mercaderia tm ON tm.id = sk.tipo_mercaderia_id
+    WHERE 1=1`;
+  const params = [];
+
+  if (empresaId) {
+    query += ' AND sk.empresa_id=?';
+    params.push(empresaId);
+  }
+
+  const [rows] = await executor.query(query, params);
+  return new Map(rows.map((row) => [Number(row.id), row]));
+}
+
+function applySkuReference(detail = {}, skuReferenceMap = new Map()) {
+  const skuId = Number(detail.sku_id || 0);
+  const skuReference = skuId ? skuReferenceMap.get(skuId) : null;
+  if (!skuReference) return detail;
+
+  return {
+    ...detail,
+    sku_codigo: skuReference.codigo || detail.sku_codigo || '',
+    sku_nombre: skuReference.nombre || detail.sku_nombre || '',
+    categoria_id: skuReference.categoria_id || detail.categoria_id || null,
+    categoria_nombre: skuReference.categoria_nombre || detail.categoria_nombre || '',
+    tipo_mercaderia_id: skuReference.tipo_mercaderia_id || detail.tipo_mercaderia_id || null,
+    tipo_mercaderia_nombre: skuReference.tipo_mercaderia_nombre || detail.tipo_mercaderia_nombre || '',
+  };
+}
+
+function buildStockInitialMovements(auditRows = [], skuReferenceMap = new Map()) {
+  return auditRows.map((auditRow) => {
+    const parsedDetail = parseAuditDetail(auditRow.detalle);
+    const detail = parsedDetail ? applySkuReference(parsedDetail, skuReferenceMap) : null;
+    if (!detail || !detail.almacen_id || !detail.sku_id || !detail.cantidad) return null;
+    return {
+      id: `audit-${auditRow.id}`,
+      tipo_movimiento: 'STOCK_INITIAL',
+      tipo_accion: 'ENTRADA',
+      cantidad: Number(detail.cantidad || 0),
+      almacen_origen_id: null,
+      almacen_destino_id: Number(detail.almacen_id),
+      almacen_origen_nombre: '',
+      almacen_destino_nombre: detail.almacen_nombre || '',
+      zona: detail.zona || '',
+      zona_destino: detail.zona || '',
+      categoria_id: detail.categoria_id || null,
+      categoria_nombre: detail.categoria_nombre || '',
+      tipo_mercaderia_id: detail.tipo_mercaderia_id || null,
+      tipo_mercaderia_nombre: detail.tipo_mercaderia_nombre || '',
+      sku_id: Number(detail.sku_id),
+      sku_codigo: detail.sku_codigo || '',
+      sku_nombre: detail.sku_nombre || '',
+      lote_id: detail.lote_id || null,
+      codigo_lote: detail.codigo_lote || '',
+      lote_fecha_vencimiento: detail.fecha_vencimiento || null,
+    };
+  }).filter(Boolean);
+}
+
+function applyDashboardStockFilters(rows, filters = {}) {
+  return rows.filter((row) => {
+    if (filters.almacen_id && Number(row.almacen_id) !== Number(filters.almacen_id)) return false;
+    if (filters.zona && row.zona !== filters.zona) return false;
+    if (filters.categoria_id && Number(row.categoria_id) !== Number(filters.categoria_id)) return false;
+    if (filters.tipo_mercaderia_id && Number(row.tipo_mercaderia_id) !== Number(filters.tipo_mercaderia_id)) return false;
+    if (filters.sku) {
+      const term = String(filters.sku).toLowerCase();
+      if (!String(row.sku || '').toLowerCase().includes(term) && !String(row.sku_codigo || '').toLowerCase().includes(term)) return false;
+    }
+    if (filters.lote && !String(row.lote || 'SIN LOTE').toLowerCase().includes(String(filters.lote).toLowerCase())) return false;
+    if (filters.vencimiento_desde) {
+      const dateValue = row.fecha_vencimiento ? String(row.fecha_vencimiento).slice(0, 10) : '';
+      if (!dateValue || dateValue < filters.vencimiento_desde) return false;
+    }
+    if (filters.vencimiento_hasta) {
+      const dateValue = row.fecha_vencimiento ? String(row.fecha_vencimiento).slice(0, 10) : '';
+      if (!dateValue || dateValue > filters.vencimiento_hasta) return false;
+    }
+    return true;
+  });
+}
 
 async function getDashboardWarehouseScope(req) {
   if (!req?.usuario || req.usuario.rol === 'superadmin') {
@@ -52,6 +274,7 @@ router.get('/resumen', async (req, res) => {
     const eid = req.empresa_id;
     const {
       almacen_id,
+      zona,
       categoria_id,
       tipo_mercaderia_id,
       sku,
@@ -104,6 +327,16 @@ router.get('/resumen', async (req, res) => {
     if (almacen_id) {
       registroFilters.push('(r.almacen_origen_id = ? OR r.almacen_destino_id = ?)');
       registroFilterParams.push(almacen_id, almacen_id);
+    }
+    if (zona) {
+      registroFilters.push(`EXISTS (
+        SELECT 1
+        FROM almacenes a_zona
+        JOIN ciudades c_zona ON c_zona.id = a_zona.ciudad_id
+        WHERE a_zona.id IN (r.almacen_origen_id, r.almacen_destino_id)
+          AND ${getZonaExpr('c_zona')} = ?
+      )`);
+      registroFilterParams.push(zona);
     }
     if (categoria_id) {
       registroFilters.push('r.categoria_id = ?');
@@ -189,7 +422,9 @@ router.get('/resumen', async (req, res) => {
     }
 
     const registroFilterClause = registroFilters.length ? ` AND ${registroFilters.join(' AND ')}` : '';
-    const whereRegistros = eid ? `WHERE r.empresa_id=?${scope.clause}${registroFilterClause}` : `WHERE 1=1${scope.clause}${registroFilterClause}`;
+    const whereRegistros = eid
+      ? `WHERE r.empresa_id=? AND r.eliminado_at IS NULL${scope.clause}${registroFilterClause}`
+      : `WHERE r.eliminado_at IS NULL${scope.clause}${registroFilterClause}`;
     const scopedParams = eid ? [eid, ...scope.params, ...registroFilterParams] : [...scope.params, ...registroFilterParams];
 
     const [[totales]] = await pool.query(
@@ -273,6 +508,10 @@ router.get('/resumen', async (req, res) => {
       stockFilters.push('sa.almacen_id = ?');
       stockFilterParams.push(almacen_id);
     }
+    if (zona) {
+      stockFilters.push(`${getZonaExpr('c_stock')} = ?`);
+      stockFilterParams.push(zona);
+    }
     if (categoria_id) {
       stockFilters.push('sk.categoria_id = ?');
       stockFilterParams.push(categoria_id);
@@ -326,6 +565,7 @@ router.get('/resumen', async (req, res) => {
        LEFT JOIN tipos_mercaderia tm ON tm.id = sk.tipo_mercaderia_id
        JOIN lotes lo ON lo.id = sa.lote_id
        JOIN almacenes ao ON ao.id = sa.almacen_id
+       JOIN ciudades c_stock ON c_stock.id = ao.ciudad_id
        WHERE ${stockWhere}
          AND lo.fecha_vencimiento IS NOT NULL
          AND lo.fecha_vencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
@@ -342,6 +582,7 @@ router.get('/resumen', async (req, res) => {
        LEFT JOIN tipos_mercaderia tm ON tm.id = sk.tipo_mercaderia_id
        JOIN lotes lo ON lo.id = sa.lote_id
        JOIN almacenes ao ON ao.id = sa.almacen_id
+       JOIN ciudades c_stock ON c_stock.id = ao.ciudad_id
        WHERE ${stockWhere}
          AND lo.fecha_vencimiento < CURDATE()
          ${vencimientosExclusionFilter}
@@ -365,6 +606,7 @@ router.get('/resumen', async (req, res) => {
        LEFT JOIN categorias ca ON ca.id = sk.categoria_id
        LEFT JOIN tipos_mercaderia tm ON tm.id = sk.tipo_mercaderia_id
        JOIN almacenes ao ON ao.id = sa.almacen_id
+       JOIN ciudades c_stock ON c_stock.id = ao.ciudad_id
        LEFT JOIN lotes lo ON lo.id = sa.lote_id
        WHERE ${stockWhere}
        GROUP BY sa.almacen_id, sa.sku_id, ao.nombre, sk.nombre, ca.nombre, tm.nombre, sk.tipo_mercaderia_id, sa.empresa_id
@@ -422,6 +664,7 @@ router.get('/stock-table', async (req, res) => {
     const eid = req.empresa_id;
     const {
       almacen_id,
+      zona,
       categoria_id,
       tipo_mercaderia_id,
       sku,
@@ -431,86 +674,78 @@ router.get('/stock-table', async (req, res) => {
     } = req.query;
 
     const scopedStockIds = await getDashboardWarehouseScope(req);
-    const scopeClauses = [
-      'sa.cantidad > 0',
-      eid ? 'sa.empresa_id = ?' : null,
-      scopedStockIds.length ? `sa.almacen_id IN (${scopedStockIds.map(() => '?').join(',')})` : null,
-    ].filter(Boolean);
-    const scopeParams = [
-      ...(eid ? [eid] : []),
-      ...scopedStockIds,
-    ];
-    const params = [...scopeParams];
-
-    const baseSelect = `
-      SELECT
-        ao.id AS almacen_id,
-        ao.nombre AS almacen,
-        ca.id AS categoria_id,
-        ca.nombre AS categoria,
-        tm.id AS tipo_mercaderia_id,
-        tm.nombre AS tipo_mercaderia,
-        sk.id AS sku_id,
+    
+    let movementsQuery = `SELECT
+        sm.id,
+        sm.tipo_movimiento,
+        sm.cantidad,
+        sm.almacen_origen_id,
+        sm.almacen_destino_id,
+        sm.sku_id,
+        sm.lote_id,
+        COALESCE(r.accion, 'TG INTERNO') AS accion,
+        COALESCE(r.tipo_accion,
+          CASE WHEN sm.tipo_movimiento='TG_INTERNO_ENTRADA' THEN 'ENTRADA'
+               WHEN sm.tipo_movimiento='TG_INTERNO_SALIDA' THEN 'SALIDA'
+               ELSE NULL END
+        ) AS tipo_accion,
         sk.codigo AS sku_codigo,
-        sk.nombre AS sku,
-        lo.id AS lote_id,
-        COALESCE(lo.codigo_lote, 'SIN LOTE') AS lote,
-        lo.fecha_vencimiento,
-        SUM(sa.cantidad) AS stock_final
-      FROM stock_almacen sa
-      JOIN skus sk ON sk.id = sa.sku_id
+        sk.nombre AS sku_nombre,
+        ca.id AS categoria_id,
+        ca.nombre AS categoria_nombre,
+        tm.id AS tipo_mercaderia_id,
+        tm.nombre AS tipo_mercaderia_nombre,
+        lo.codigo_lote,
+        lo.fecha_vencimiento AS lote_fecha_vencimiento,
+        ao.nombre AS almacen_origen_nombre,
+        ad.nombre AS almacen_destino_nombre,
+        ${getZonaExpr('co')} AS zona_origen,
+        ${getZonaExpr('cd')} AS zona_destino,
+        CASE WHEN sm.almacen_origen_id IS NOT NULL THEN ${getZonaExpr('co')} ELSE ${getZonaExpr('cd')} END AS zona
+      FROM stock_movimientos sm
+      LEFT JOIN registros r ON r.id = sm.registro_id
+      JOIN skus sk ON sk.id = sm.sku_id
       JOIN categorias ca ON ca.id = sk.categoria_id
       LEFT JOIN tipos_mercaderia tm ON tm.id = sk.tipo_mercaderia_id
-      JOIN almacenes ao ON ao.id = sa.almacen_id
-      LEFT JOIN lotes lo ON lo.id = sa.lote_id
-    `;
-
-    let query = `${baseSelect} WHERE ${scopeClauses.join(' AND ')}`;
-    if (almacen_id) {
-      query += ' AND sa.almacen_id = ?';
-      params.push(almacen_id);
-    }
-    if (categoria_id) {
-      query += ' AND sk.categoria_id = ?';
-      params.push(categoria_id);
-    }
-    if (tipo_mercaderia_id) {
-      query += ' AND sk.tipo_mercaderia_id = ?';
-      params.push(tipo_mercaderia_id);
-    }
-    if (sku) {
-      query += ' AND (sk.nombre LIKE ? OR sk.codigo LIKE ?)';
-      params.push(`%${sku}%`, `%${sku}%`);
-    }
-    if (lote) {
-      query += " AND COALESCE(lo.codigo_lote, 'SIN LOTE') LIKE ?";
-      params.push(`%${lote}%`);
-    }
-    if (vencimiento_desde) {
-      query += ' AND lo.fecha_vencimiento >= ?';
-      params.push(vencimiento_desde);
-    }
-    if (vencimiento_hasta) {
-      query += ' AND lo.fecha_vencimiento <= ?';
-      params.push(vencimiento_hasta);
+      LEFT JOIN lotes lo ON lo.id = sm.lote_id
+      LEFT JOIN almacenes ao ON ao.id = sm.almacen_origen_id
+      LEFT JOIN almacenes ad ON ad.id = sm.almacen_destino_id
+      LEFT JOIN ciudades co ON co.id = ao.ciudad_id
+      LEFT JOIN ciudades cd ON cd.id = ad.ciudad_id
+      WHERE (r.id IS NULL OR r.eliminado_at IS NULL)`;
+    const movementParams = [];
+    if (eid) {
+      movementsQuery += ' AND sm.empresa_id=?';
+      movementParams.push(eid);
     }
 
-    query += ` GROUP BY ao.id, ao.nombre, ca.id, ca.nombre, tm.id, tm.nombre,
-                       sk.id, sk.codigo, sk.nombre, lo.id, lo.codigo_lote, lo.fecha_vencimiento
-               ORDER BY ao.nombre, ca.nombre, tm.nombre, sk.nombre, lo.fecha_vencimiento`;
+    const [stockMovements] = await pool.query(movementsQuery, movementParams);
 
-    const [rows] = await pool.query(query, params);
-    const normalizedRows = rows.map((row) => ({
-      ...row,
-      stock_final: Math.trunc(Number(row.stock_final || 0)),
-    }));
+    let auditQuery = `SELECT id, created_at, detalle
+                      FROM audit_log
+                      WHERE accion='STOCK_INITIAL' AND tabla='stock_almacen'`;
+    const auditParams = [];
+    if (eid) {
+      auditQuery += ' AND empresa_id=?';
+      auditParams.push(eid);
+    }
+    const [auditRows] = await pool.query(auditQuery, auditParams);
+    const skuReferenceMap = await loadSkuReferenceMap(pool, eid);
 
-    const [filterRows] = await pool.query(
-      `${baseSelect} WHERE ${scopeClauses.join(' AND ')}
-       GROUP BY ao.id, ao.nombre, ca.id, ca.nombre, tm.id, tm.nombre,
-                sk.id, sk.codigo, sk.nombre, lo.id, lo.codigo_lote, lo.fecha_vencimiento`,
-      scopeParams
+    const filterRows = buildDashboardStockRows(
+      [...stockMovements, ...buildStockInitialMovements(auditRows, skuReferenceMap)],
+      scopedStockIds,
     );
+    const normalizedRows = applyDashboardStockFilters(filterRows, {
+      almacen_id,
+      zona,
+      categoria_id,
+      tipo_mercaderia_id,
+      sku,
+      lote,
+      vencimiento_desde,
+      vencimiento_hasta,
+    });
 
     const uniqueBy = (key, labelKey) => Array.from(
       filterRows.reduce((map, row) => {
@@ -520,6 +755,19 @@ router.get('/stock-table', async (req, res) => {
     )
       .map(([id, nombre]) => ({ id, nombre }))
       .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+
+    const uniqueWarehouses = () => Array.from(
+      filterRows.reduce((map, row) => {
+        if (row.almacen_id) {
+          map.set(Number(row.almacen_id), {
+            id: Number(row.almacen_id),
+            nombre: row.almacen || '',
+            zona: row.zona || '',
+          });
+        }
+        return map;
+      }, new Map()).values(),
+    ).sort((a, b) => String(a.zona).localeCompare(String(b.zona)) || String(a.nombre).localeCompare(String(b.nombre)));
 
     const uniqueTypeByCategory = () => Array.from(
       filterRows.reduce((map, row) => {
@@ -569,7 +817,8 @@ router.get('/stock-table', async (req, res) => {
       datos: {
         rows: normalizedRows,
         filtros: {
-          almacenes: uniqueBy('almacen_id', 'almacen'),
+          almacenes: uniqueWarehouses(),
+          zonas: ['LIMA', 'PROVINCIA'].filter((zonaNombre) => filterRows.some((row) => row.zona === zonaNombre)),
           categorias: uniqueBy('categoria_id', 'categoria'),
           tipos_mercaderia: uniqueTypeByCategory(),
         },

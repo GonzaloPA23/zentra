@@ -56,6 +56,13 @@ function buildRegistroAuditSnapshot(registro = {}, extra = {}) {
     indicador_id: extra.indicador_id ?? registro?.indicador_id ?? null,
     indicador_nombre: normalizeAuditString(extra.indicador_nombre ?? registro?.indicador_nombre) || null,
     sku_resumen: normalizeAuditString(extra.sku_resumen ?? registro?.sku_resumen ?? buildSkuSummary(detalles)) || null,
+    detalles: detalles.map((detail) => ({
+      sku_id: detail?.sku_id ?? null,
+      sku_nombre: normalizeAuditString(detail?.sku_nombre) || null,
+      lote_id: detail?.lote_id ?? null,
+      codigo_lote: normalizeAuditString(detail?.codigo_lote) || null,
+      cantidad: Number(detail?.cantidad || 0),
+    })),
   };
 
   Object.entries(extra || {}).forEach(([key, value]) => {
@@ -97,7 +104,9 @@ function describeAuditAction(action, detail) {
   const fallbacks = {
     CREATE: 'Creo un registro',
     UPDATE: 'Edito un registro',
+    UPDATE_APPROVED: 'Edito un registro aprobado',
     DELETE: 'Elimino un registro',
+    DELETE_APPROVED: 'Elimino un registro aprobado',
   };
 
   return fallbacks[action] || action;

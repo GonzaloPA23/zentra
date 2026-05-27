@@ -22,6 +22,7 @@ import {
   Clock,
   Filter,
   Layers,
+  MapPin,
   RotateCcw,
   Search,
   TrendingUp,
@@ -37,6 +38,7 @@ import StockTableMatrix from '../components/StockTableMatrix';
 const COLORS = ['#2563eb', '#0891b2', '#16a34a', '#f59e0b', '#db2777', '#7c3aed', '#475569'];
 const EMPTY_FILTERS = {
   almacen_id: '',
+  zona: '',
   categoria_id: '',
   tipo_mercaderia_id: '',
   sku: '',
@@ -90,11 +92,31 @@ function DashboardFilters({ filters, options, onChange, onClear }) {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label className="block">
           <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase text-gray-500">
+            <MapPin size={13} /> Zona
+          </span>
+          <select
+            className="input"
+            value={filters.zona}
+            onChange={(e) => {
+              onChange('zona', e.target.value);
+              onChange('almacen_id', '');
+            }}
+          >
+            <option value="">Todas las zonas</option>
+            {(options.zonas || ['LIMA', 'PROVINCIA']).map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase text-gray-500">
             <Warehouse size={13} /> Almacen
           </span>
           <select className="input" value={filters.almacen_id} onChange={(e) => onChange('almacen_id', e.target.value)}>
             <option value="">Todos los almacenes</option>
-            {(options.almacenes || []).map((item) => (
+            {(options.almacenes || [])
+              .filter((item) => !filters.zona || item.zona === filters.zona)
+              .map((item) => (
               <option key={item.id} value={item.id}>{item.nombre}</option>
             ))}
           </select>

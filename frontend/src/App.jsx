@@ -8,6 +8,9 @@ import DashboardPage from './pages/DashboardPage';
 import RegistrosPage from './pages/RegistrosPageV2';
 import RegistroFormPage from './pages/RegistroFormPage';
 import Modulo2Page from './pages/Modulo2PageV2';
+import TGInternoPage from './pages/TGInternoPage';
+import TGInternoListadoPage from './pages/TGInternoListadoPage';
+import TGInternoDetallePage from './pages/TGInternoDetallePage';
 import CategoriasPage from './pages/catalogs/CategoriasPage';
 import AlmacenesPage from './pages/catalogs/AlmacenesPage';
 import SkusPage from './pages/catalogs/SkusPage';
@@ -46,6 +49,28 @@ function AppRoutes() {
         <Route path="registros/:id/editar" element={
           <ProtectedRoute roles={['superadmin','admin']}>
             <RegistroFormPage />
+          </ProtectedRoute>
+        } />
+
+        {/* TG INTERNO */}
+        <Route path="tg-interno/nuevo" element={
+          <ProtectedRoute roles={['superadmin','admin','almacenero']}>
+            <TGInternoPage />
+          </ProtectedRoute>
+        } />
+        <Route path="tg-interno/:id/editar" element={
+          <ProtectedRoute roles={['superadmin','admin']}>
+            <TGInternoPage />
+          </ProtectedRoute>
+        } />
+        <Route path="tg-interno/listado" element={
+          <ProtectedRoute roles={['superadmin','admin','almacenero']}>
+            <TGInternoListadoPage />
+          </ProtectedRoute>
+        } />
+        <Route path="tg-interno/detalle/:id" element={
+          <ProtectedRoute roles={['superadmin','admin','almacenero']}>
+            <TGInternoDetallePage />
           </ProtectedRoute>
         } />
 

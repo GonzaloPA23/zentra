@@ -487,11 +487,15 @@ export default function SkusPage() {
       },
       {
         header: "Lote",
+        filterValue: (row) => (row.tiene_lote ? "Si" : "No"),
+        sortValue: (row) => (row.tiene_lote ? "Si" : "No"),
         render: (row) => (row.tiene_lote ? "✓" : "—"),
         width: 60,
       },
       {
         header: "Venc.",
+        filterValue: (row) => (row.tiene_vencimiento ? "Si" : "No"),
+        sortValue: (row) => (row.tiene_vencimiento ? "Si" : "No"),
         render: (row) => (row.tiene_vencimiento ? "✓" : "—"),
         width: 60,
       },

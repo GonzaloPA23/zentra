@@ -15,8 +15,12 @@ import {
   X,
 } from "lucide-react";
 import api, { getMensajeError } from "../utils/api";
+import { useAuth } from "../context/AuthContext";
 import SearchableSelect from "../components/SearchableSelect";
-import { getPeruTodayDateInputValue, toSafeDateInputValue } from "../utils/date";
+import {
+  getPeruTodayDateInputValue,
+  toSafeDateInputValue,
+} from "../utils/date";
 import { getBlobErrorMessage } from "../utils/download";
 
 const ACCIONES = ["MERMA", "DESPACHO A CANJISTAS", "OTROS MOVIMIENTOS"];
@@ -29,8 +33,14 @@ const ZONA_OPTIONS = [
   { value: "PROVINCIA", label: "PROVINCIA" },
 ];
 
+function parseIdList(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
 function buildEmptyDetail() {
   return {
+    id: "",
     tipo_mercaderia_id: "",
     sku_id: "",
     lote_id: "",
@@ -208,7 +218,11 @@ function DetalleRow({
   getValues,
   categoriaId,
   zona,
+  almacenOrigenId,
+  tipoAccion,
   tiposMercaderia,
+  isEditing,
+  registroId,
   remove,
   canRemove,
   disabled,
@@ -225,6 +239,7 @@ function DetalleRow({
   const previousTipoRef = useRef(tipoMercaderiaId);
   const previousSkuRef = useRef(skuId);
   const previousLoteRef = useRef(loteId);
+  const preserveInitialEditValuesRef = useRef(isEditing);
 
   const { data: skus = [] } = useQuery({
     queryKey: [
@@ -250,7 +265,14 @@ function DetalleRow({
     () => skus.find((sku) => String(sku.id) === String(skuId)),
     [skus, skuId],
   );
-  const lotesQueryKey = ["registro-line-lotes", skuId || ""];
+  const shouldFilterLotesByStock = tipoAccion === "SALIDA";
+  const lotesQueryKey = [
+    "registro-line-lotes",
+    skuId || "",
+    shouldFilterLotesByStock ? almacenOrigenId || "" : "catalogo",
+    isEditing && loteId ? `incluye-${loteId}` : "",
+    isEditing && registroId ? `registro-${registroId}` : "",
+  ];
   const {
     data: lotes = [],
     refetch: refetchLotes,
@@ -259,11 +281,16 @@ function DetalleRow({
     error: lotesQueryError,
   } = useQuery({
     queryKey: lotesQueryKey,
-    queryFn: () =>
-      api
-        .get(`/catalogos/lotes?sku_id=${skuId}`)
-        .then((response) => response.data.datos),
-    enabled: !!skuId && parseFlag(skuSeleccionado?.tiene_lote),
+    queryFn: () => {
+      const params = new URLSearchParams({ sku_id: skuId });
+      if (shouldFilterLotesByStock && almacenOrigenId) params.set("almacen_id", almacenOrigenId);
+      if (isEditing && loteId) params.set("include_lote_id", loteId);
+      if (isEditing && registroId) params.set("registro_id", registroId);
+      return api
+        .get(`/catalogos/lotes?${params.toString()}`)
+        .then((response) => response.data.datos);
+    },
+    enabled: !!skuId && (!shouldFilterLotesByStock || !!almacenOrigenId) && parseFlag(skuSeleccionado?.tiene_lote),
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
@@ -278,18 +305,27 @@ function DetalleRow({
 
   useEffect(() => {
     if (previousTipoRef.current === tipoMercaderiaId) return;
+    if (preserveInitialEditValuesRef.current && tipoMercaderiaId && skuId) {
+      previousTipoRef.current = tipoMercaderiaId;
+      return;
+    }
     previousTipoRef.current = tipoMercaderiaId;
     setValue(`detalles.${index}.sku_id`, "");
     setValue(`detalles.${index}.lote_id`, "");
     setValue(`detalles.${index}.fecha_vencimiento`, "");
-  }, [index, setValue, tipoMercaderiaId]);
+  }, [index, setValue, skuId, tipoMercaderiaId]);
 
   useEffect(() => {
     if (previousSkuRef.current === skuId) return;
+    if (preserveInitialEditValuesRef.current && skuId && loteId) {
+      previousSkuRef.current = skuId;
+      preserveInitialEditValuesRef.current = false;
+      return;
+    }
     previousSkuRef.current = skuId;
     setValue(`detalles.${index}.lote_id`, "");
     setValue(`detalles.${index}.fecha_vencimiento`, "");
-  }, [index, setValue, skuId]);
+  }, [index, loteId, setValue, skuId]);
 
   useEffect(() => {
     if (!skuSeleccionado) return;
@@ -342,6 +378,40 @@ function DetalleRow({
   }, [clearErrors, index, loteId, loteSeleccionado, setValue, skuManejaLote]);
 
   useEffect(() => {
+    if (!skuManejaLote || !loteId) return;
+
+    if (loteSeleccionado?.fecha_vencimiento) {
+      setValue(
+        `detalles.${index}.fecha_vencimiento`,
+        toSafeDateInputValue(loteSeleccionado.fecha_vencimiento),
+        {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: true,
+        },
+      );
+      clearErrors(`detalles.${index}.fecha_vencimiento`);
+      return;
+    }
+
+    if (skuManejaVencimiento) {
+      setValue(`detalles.${index}.fecha_vencimiento`, "", {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+    }
+  }, [
+    clearErrors,
+    index,
+    loteId,
+    loteSeleccionado?.fecha_vencimiento,
+    setValue,
+    skuManejaLote,
+    skuManejaVencimiento,
+  ]);
+
+  useEffect(() => {
     if (!skuManejaLote) {
       clearErrors([
         `detalles.${index}.lote_id`,
@@ -367,11 +437,18 @@ function DetalleRow({
   );
   const loteOptions = buildSearchOptions(
     lotes,
+    (lote) => {
+      const vencimiento = lote.fecha_vencimiento
+        ? ` - vence ${toSafeDateInputValue(lote.fecha_vencimiento)}`
+        : "";
+      const stock =
+        shouldFilterLotesByStock && lote.stock_disponible !== undefined
+          ? ` - Stock ${Number(lote.stock_disponible || 0).toLocaleString("es-PE")}`
+          : "";
+      return `${lote.codigo_lote}${vencimiento}${stock}`;
+    },
     (lote) =>
-      lote.fecha_vencimiento
-        ? `${lote.codigo_lote} · vence ${toSafeDateInputValue(lote.fecha_vencimiento)}`
-        : lote.codigo_lote,
-    (lote) => `${lote.codigo_lote} ${lote.fecha_vencimiento || ""}`,
+      `${lote.codigo_lote} ${lote.fecha_vencimiento || ""} ${lote.stock_disponible ?? ""}`,
   );
 
   const handleLoteCreated = async (nuevoLote) => {
@@ -639,6 +716,7 @@ export default function RegistroFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { hasRole, usuario } = useAuth();
   const isEditing = !!id;
   const isHydratingRef = useRef(false);
   const previousZonaRef = useRef("");
@@ -686,6 +764,7 @@ export default function RegistroFormPage() {
   const almacenDestinoId = useWatch({ control, name: "almacen_destino_id" });
   const categoriaId = useWatch({ control, name: "categoria_id" });
   const indicadorId = useWatch({ control, name: "indicador_id" });
+  const tipoAccion = useWatch({ control, name: "tipo_accion" });
 
   const { data: categorias = [] } = useQuery({
     queryKey: ["categorias"],
@@ -794,8 +873,20 @@ export default function RegistroFormPage() {
     [indicadorId, indicadores],
   );
   const isTgMolitalia = isTgMolitaliaIndicator(indicadorSeleccionado);
+  const assignedCityIds = useMemo(
+    () => parseIdList(usuario?.ciudad_ids?.length ? usuario.ciudad_ids : usuario?.ciudad_id),
+    [usuario?.ciudad_id, usuario?.ciudad_ids],
+  );
+  const userHasCityScope = !isEditing && assignedCityIds.length > 0 && ["almacenero", "supervisor"].includes(usuario?.rol);
+  const userCityLocked = userHasCityScope && assignedCityIds.length === 1;
+  const ciudadesDisponibles = useMemo(
+    () => (userHasCityScope
+      ? ciudades.filter((ciudad) => assignedCityIds.includes(String(ciudad.id)))
+      : ciudades),
+    [assignedCityIds, ciudades, userHasCityScope],
+  );
   const ciudadOptions = buildSearchOptions(
-    ciudades,
+    ciudadesDisponibles,
     (ciudad) => `${ciudad.nombre} · ${ciudad.region_nombre}`,
     (ciudad) => `${ciudad.nombre} ${ciudad.region_nombre || ""}`,
   );
@@ -834,13 +925,22 @@ export default function RegistroFormPage() {
     `${currentRegistro?.personal_receptor_nombre || ""} ${currentRegistro?.almacen_origen || ""} ${currentRegistro?.almacen_destino || ""}`,
   );
 
-  const isReadOnly = isEditing && registroQuery.data?.estado === "aprobado";
+  const isApprovedRegistro = isEditing && registroQuery.data?.estado === "aprobado";
+  const canEditApprovedRegistro = hasRole("superadmin", "admin");
+  const isReadOnly = isApprovedRegistro && !canEditApprovedRegistro;
 
   useEffect(() => {
     if (!registroQuery.isError) return;
     toast.error("No se pudo cargar el registro");
     navigate("/registros");
   }, [navigate, registroQuery.isError]);
+
+  useEffect(() => {
+    if (!userCityLocked || isHydratingRef.current) return;
+    const singleCity = ciudadesDisponibles[0];
+    if (singleCity?.zona || usuario?.zona) setValue("zona", singleCity?.zona || usuario.zona);
+    if (assignedCityIds[0]) setValue("ciudad_id", String(assignedCityIds[0]));
+  }, [assignedCityIds, ciudadesDisponibles, setValue, userCityLocked, usuario?.zona]);
 
   useEffect(() => {
     if (!registroQuery.data) return;
@@ -869,6 +969,7 @@ export default function RegistroFormPage() {
       detalles:
         Array.isArray(registro.detalles) && registro.detalles.length
           ? registro.detalles.map((detail) => ({
+              id: detail.id ? String(detail.id) : "",
               tipo_mercaderia_id: detail.tipo_mercaderia_id
                 ? String(detail.tipo_mercaderia_id)
                 : "",
@@ -893,13 +994,14 @@ export default function RegistroFormPage() {
 
   useEffect(() => {
     if (isHydratingRef.current) return;
+    if (userCityLocked) return;
     if (previousZonaRef.current === zona) return;
     previousZonaRef.current = zona;
 
     const ciudadActual = getValues("ciudad_id");
     if (
       ciudadActual &&
-      !ciudades.some((ciudad) => String(ciudad.id) === String(ciudadActual))
+      !ciudadesDisponibles.some((ciudad) => String(ciudad.id) === String(ciudadActual))
     ) {
       setValue("ciudad_id", "");
       setValue("almacen_origen_id", "");
@@ -913,7 +1015,7 @@ export default function RegistroFormPage() {
       setValue(`detalles.${index}.lote_id`, "");
       setValue(`detalles.${index}.fecha_vencimiento`, "");
     });
-  }, [ciudades, getValues, setValue, zona]);
+  }, [ciudadesDisponibles, getValues, setValue, userCityLocked, zona]);
 
   useEffect(() => {
     if (isHydratingRef.current) return;
@@ -1138,6 +1240,8 @@ export default function RegistroFormPage() {
               {isEditing
                 ? isReadOnly
                   ? "Ver registro aprobado"
+                  : isApprovedRegistro
+                    ? "Editar registro aprobado"
                   : "Editar registro"
                 : "Nuevo registro"}
             </h1>
@@ -1162,6 +1266,13 @@ export default function RegistroFormPage() {
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           Este registro ya fue aprobado. Los campos quedan bloqueados y solo
           puedes descargar su detalle.
+        </div>
+      )}
+
+      {isApprovedRegistro && !isReadOnly && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Este registro ya fue aprobado. Al guardar, el sistema reversa el stock
+          anterior, reaplica el nuevo movimiento y deja auditoria del cambio.
         </div>
       )}
 
@@ -1199,6 +1310,7 @@ export default function RegistroFormPage() {
                   rules={{ required: "Requerido" }}
                   options={ZONA_OPTIONS}
                   placeholder="Seleccionar zona..."
+                  disabled={userCityLocked}
                 />
                 {errors.zona && (
                   <p className="error-msg">{errors.zona.message}</p>
@@ -1217,7 +1329,7 @@ export default function RegistroFormPage() {
                   placeholder={
                     zona ? "Seleccionar ciudad..." : "Primero selecciona zona"
                   }
-                  disabled={!zona}
+                  disabled={!zona || userCityLocked}
                   emptyText="Sin ciudades para la zona"
                 />
                 {errors.ciudad_id && (
@@ -1480,7 +1592,11 @@ export default function RegistroFormPage() {
                   getValues={getValues}
                   categoriaId={categoriaId}
                   zona={zona}
+                  almacenOrigenId={almacenOrigenId}
+                  tipoAccion={tipoAccion}
                   tiposMercaderia={tiposMercaderia}
+                  isEditing={isEditing}
+                  registroId={id}
                   remove={remove}
                   canRemove={fields.length > 1}
                   disabled={isReadOnly || saving}

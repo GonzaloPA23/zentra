@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 const { body, param, validationResult } = require("express-validator");
 const { pool } = require("../db");
 const {
@@ -21,8 +22,21 @@ const {
 const router = express.Router();
 router.use(authMiddleware, empresaMiddleware);
 
+const excelStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = process.env.UPLOAD_PATH || "./uploads";
+    const excelDir = path.join(dir, "excels");
+    fs.mkdirSync(excelDir, { recursive: true });
+    cb(null, excelDir);
+  },
+  filename: (req, file, cb) => {
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, unique + path.extname(file.originalname));
+  },
+});
+
 const excelUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: excelStorage,
   limits: {
     fileSize: parseInt(process.env.MAX_FILE_SIZE || "", 10) || 5 * 1024 * 1024,
   },
@@ -226,6 +240,30 @@ function describeSku(row) {
   return parts.join(" / ");
 }
 
+function buildSkuIdentityKey({
+  nombre,
+  categoria_id,
+  tipo_mercaderia_id,
+  zona,
+}) {
+  return [
+    normalizeLookupText(nombre),
+    Number(categoria_id || 0),
+    Number(tipo_mercaderia_id || 0),
+    normalizeLookupText(zona),
+  ].join("|");
+}
+
+function findSkuIdentityDuplicate(skus, identity, { ignoreId = null } = {}) {
+  const key = buildSkuIdentityKey(identity);
+  return skus.find((sku) => {
+    if (ignoreId && Number(sku.id) === Number(ignoreId)) {
+      return false;
+    }
+    return buildSkuIdentityKey(sku) === key;
+  });
+}
+
 function resolveSingleSheetMatch(
   rows,
   {
@@ -252,6 +290,11 @@ function resolveSingleSheetMatch(
   }
 
   if (matches.length > 1) {
+    const activeMatches = matches.filter((row) => Number(row.activo) === 1);
+    if (activeMatches.length === 1) {
+      return activeMatches[0];
+    }
+
     const examples = matches
       .slice(0, 3)
       .map((row) => describeRow(row))
@@ -713,7 +756,7 @@ async function fetchLotes(
   executor = pool,
 ) {
   const empresaId = resolveEmpresaId(req);
-  const { sku_id } = req.query;
+  const { sku_id, almacen_id, solo_con_stock } = req.query;
   if (!sku_id) {
     const error = new Error("sku_id requerido");
     error.statusCode = 400;
@@ -727,20 +770,227 @@ async function fetchLotes(
     throw error;
   }
 
+  const almacenId = almacen_id ? Number.parseInt(almacen_id, 10) : null;
+  const includeLoteId = req.query.include_lote_id ? Number.parseInt(req.query.include_lote_id, 10) : null;
+  const registroId = req.query.registro_id ? Number.parseInt(req.query.registro_id, 10) : null;
+  const filterByWarehouseStock = !!almacenId || String(solo_con_stock || "") === "1";
+  if (filterByWarehouseStock && !almacenId) {
+    const error = new Error("almacen_id requerido para filtrar lotes por stock");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (filterByWarehouseStock) {
+    const stockSources = [];
+    const stockParams = [];
+
+    let auditStockQuery = `SELECT
+        CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(a.detalle, '$.lote_id')), '') AS UNSIGNED) AS lote_id,
+        SUM(CAST(COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(a.detalle, '$.cantidad')), ''), '0') AS DECIMAL(18,4))) AS cantidad
+      FROM audit_log a
+      WHERE a.accion='STOCK_INITIAL'
+        AND a.tabla='stock_almacen'
+        AND CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(a.detalle, '$.almacen_id')), '') AS UNSIGNED)=?
+        AND CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(a.detalle, '$.sku_id')), '') AS UNSIGNED)=?`;
+    stockParams.push(almacenId, sku_id);
+    if (empresaId) {
+      auditStockQuery += " AND a.empresa_id=?";
+      stockParams.push(empresaId);
+    }
+    auditStockQuery += " GROUP BY lote_id";
+    stockSources.push(auditStockQuery);
+
+    let movementStockQuery = `SELECT
+        sm.lote_id,
+        SUM(
+          CASE
+            WHEN sm.almacen_origen_id IS NOT NULL
+              AND sm.almacen_destino_id IS NOT NULL
+              AND sm.almacen_origen_id=sm.almacen_destino_id THEN
+              CASE
+                WHEN sm.tipo_movimiento='TG_INTERNO_ENTRADA' THEN sm.cantidad
+                WHEN sm.tipo_movimiento='TG_INTERNO_SALIDA' THEN -sm.cantidad
+                WHEN COALESCE(r.tipo_accion, '')='ENTRADA'
+                  AND sm.tipo_movimiento IN ('INGRESO_APROBADO', 'APROBACION') THEN sm.cantidad
+                WHEN COALESCE(r.tipo_accion, '')<>'ENTRADA'
+                  AND sm.tipo_movimiento IN ('SALIDA_TRANSITO', 'APROBACION') THEN -sm.cantidad
+                ELSE 0
+              END
+            ELSE
+              (CASE
+                WHEN sm.almacen_origen_id=?
+                  AND sm.tipo_movimiento IN ('APROBACION', 'SALIDA_TRANSITO', 'TG_INTERNO_SALIDA') THEN -sm.cantidad
+                WHEN sm.almacen_origen_id=?
+                  AND sm.tipo_movimiento='REVERSA_RECHAZO' THEN sm.cantidad
+                ELSE 0
+              END)
+              +
+              (CASE
+                WHEN sm.almacen_destino_id=?
+                  AND sm.tipo_movimiento IN ('APROBACION', 'INGRESO_APROBADO', 'TG_INTERNO_ENTRADA') THEN sm.cantidad
+                ELSE 0
+              END)
+          END
+        ) AS cantidad
+      FROM stock_movimientos sm
+      LEFT JOIN registros r ON r.id = sm.registro_id
+      WHERE sm.sku_id=?
+        AND (sm.almacen_origen_id=? OR sm.almacen_destino_id=?)
+        AND (r.id IS NULL OR r.eliminado_at IS NULL)`;
+    stockParams.push(almacenId, almacenId, almacenId, sku_id, almacenId, almacenId);
+    if (empresaId) {
+      movementStockQuery += " AND sm.empresa_id=?";
+      stockParams.push(empresaId);
+    }
+    movementStockQuery += " GROUP BY sm.lote_id";
+    stockSources.push(movementStockQuery);
+
+    if (registroId && Number.isFinite(registroId)) {
+      stockSources.push(`SELECT
+          rd.lote_id,
+          SUM(rd.cantidad) AS cantidad
+        FROM registro_detalles rd
+        JOIN registros r ON r.id = rd.registro_id
+        WHERE r.id=?
+          AND r.tipo_accion='SALIDA'
+          AND r.almacen_origen_id=?
+          AND rd.sku_id=?
+          AND r.eliminado_at IS NULL
+        GROUP BY rd.lote_id`);
+      stockParams.push(registroId, almacenId, sku_id);
+    }
+
+    let query = `SELECT l.id, l.sku_id, l.codigo_lote,
+                        DATE_FORMAT(l.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
+                        l.activo, l.created_at,
+                        s.nombre AS sku_nombre,
+                        GREATEST(COALESCE(stock.stock_disponible, 0), 0) AS stock_disponible
+                 FROM lotes l
+                 JOIN skus s ON s.id = l.sku_id
+                 LEFT JOIN (
+                   SELECT lote_id, SUM(cantidad) AS stock_disponible
+                   FROM (${stockSources.join(" UNION ALL ")}) stock_base
+                   GROUP BY lote_id
+                 ) stock ON (stock.lote_id <=> l.id)
+                 WHERE l.sku_id=?`;
+    const params = [...stockParams, sku_id];
+
+    if (!includeInactive) {
+      if (includeLoteId && Number.isFinite(includeLoteId)) {
+        query += " AND (l.activo=1 OR l.id=?)";
+        params.push(includeLoteId);
+      } else {
+        query += " AND l.activo=1";
+      }
+    }
+
+    if (includeLoteId && Number.isFinite(includeLoteId)) {
+      query += " HAVING stock_disponible > 0 OR id=?";
+      params.push(includeLoteId);
+    } else {
+      query += " HAVING stock_disponible > 0";
+    }
+
+    query += " ORDER BY l.fecha_vencimiento IS NULL, l.fecha_vencimiento, l.codigo_lote";
+    const [rows] = await executor.query(query, params);
+    return rows;
+  }
+
+  const stockJoin = filterByWarehouseStock
+    ? `${includeLoteId ? "LEFT JOIN" : "JOIN"} stock_almacen sa ON sa.lote_id = l.id AND sa.sku_id = l.sku_id AND sa.almacen_id = ?${empresaId ? " AND sa.empresa_id=?" : ""}`
+    : "";
+
+  const previousRegistroJoin =
+    filterByWarehouseStock && registroId && Number.isFinite(registroId)
+      ? `LEFT JOIN (
+                 SELECT
+                   r.empresa_id,
+                   r.almacen_origen_id AS almacen_id,
+                   rd.sku_id,
+                   rd.lote_id,
+                   SUM(rd.cantidad) AS cantidad
+                 FROM registro_detalles rd
+                 JOIN registros r ON r.id = rd.registro_id
+                 WHERE r.id=?
+                   AND r.tipo_accion='SALIDA'
+                   AND r.eliminado_at IS NULL
+                 GROUP BY r.empresa_id, r.almacen_origen_id, rd.sku_id, rd.lote_id
+               ) prev_registro ON prev_registro.empresa_id = s.empresa_id
+                 AND prev_registro.almacen_id = ?
+                 AND prev_registro.sku_id = l.sku_id
+                 AND (prev_registro.lote_id <=> l.id)`
+      : "";
+  const previousStockExpression = previousRegistroJoin
+    ? " + COALESCE(prev_registro.cantidad, 0)"
+    : "";
+  const previousStockFilter = previousRegistroJoin
+    ? " OR COALESCE(prev_registro.cantidad, 0) > 0"
+    : "";
+
   let query = `SELECT l.id, l.sku_id, l.codigo_lote,
                       DATE_FORMAT(l.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
                       l.activo, l.created_at,
                       s.nombre AS sku_nombre
+                      ${filterByWarehouseStock ? `, GREATEST(COALESCE(sa.cantidad, 0) - COALESCE(dup.cantidad, 0)${previousStockExpression}, 0) AS stock_disponible` : ""}
                FROM lotes l
                JOIN skus s ON s.id = l.sku_id
+               ${stockJoin}
+               ${filterByWarehouseStock ? `LEFT JOIN (
+                 SELECT
+                   sm.empresa_id,
+                   sm.almacen_destino_id AS almacen_id,
+                   sm.sku_id,
+                   sm.lote_id,
+                   SUM(sm.cantidad) AS cantidad
+                 FROM stock_movimientos sm
+                 JOIN registros r ON r.id = sm.registro_id
+                 WHERE sm.tipo_movimiento='INGRESO_APROBADO'
+                   AND r.tipo_accion='SALIDA'
+                   AND sm.almacen_origen_id=sm.almacen_destino_id
+                   AND r.eliminado_at IS NULL
+                 GROUP BY sm.empresa_id, sm.almacen_destino_id, sm.sku_id, sm.lote_id
+               ) dup ON dup.empresa_id = sa.empresa_id
+                 AND dup.almacen_id = sa.almacen_id
+                 AND dup.sku_id = sa.sku_id
+                 AND (dup.lote_id <=> sa.lote_id)` : ""}
+               ${previousRegistroJoin}
                WHERE l.sku_id=?`;
-  const params = [sku_id];
+  const params = filterByWarehouseStock
+    ? [
+        almacenId,
+        ...(empresaId ? [empresaId] : []),
+        ...(previousRegistroJoin ? [registroId, almacenId] : []),
+        sku_id,
+      ]
+    : [sku_id];
 
   if (!includeInactive) {
-    query += " AND l.activo=1";
+    if (includeLoteId && Number.isFinite(includeLoteId)) {
+      query += " AND (l.activo=1 OR l.id=?)";
+      params.push(includeLoteId);
+    } else {
+      query += " AND l.activo=1";
+    }
+  }
+  if (filterByWarehouseStock) {
+    if (includeLoteId && Number.isFinite(includeLoteId)) {
+      query += ` AND (COALESCE(sa.cantidad, 0) > 0${previousStockFilter} OR l.id=?)`;
+      params.push(includeLoteId);
+    } else {
+      query += ` AND (COALESCE(sa.cantidad, 0) > 0${previousStockFilter})`;
+    }
   }
 
-  query += " ORDER BY l.codigo_lote";
+  if (filterByWarehouseStock) {
+    if (includeLoteId && Number.isFinite(includeLoteId)) {
+      query += " HAVING stock_disponible > 0 OR id=?";
+      params.push(includeLoteId);
+    } else {
+      query += " HAVING stock_disponible > 0";
+    }
+  }
+
+  query += " ORDER BY l.fecha_vencimiento IS NULL, l.fecha_vencimiento, l.codigo_lote";
 
   const [rows] = await executor.query(query, params);
   return rows;
@@ -1151,6 +1401,25 @@ async function importSkusFromWorkbook(connection, req, workbook) {
       row.activo,
       existingSku ? parseBooleanFlag(existingSku.activo) : true,
     );
+
+    const duplicateSku = findSkuIdentityDuplicate(
+      skus,
+      {
+        nombre: nombreFinal,
+        categoria_id: Number(categoriaFinal.id),
+        tipo_mercaderia_id: tipo ? Number(tipo.id) : null,
+        zona,
+      },
+      { ignoreId: existingSku?.id || null },
+    );
+    if (duplicateSku) {
+      const duplicateLabel = describeSku(duplicateSku);
+      throw new Error(
+        `Fila ${rowNumber}: ya existe un SKU con el mismo nombre, categoria, tipo de mercaderia y zona. ` +
+          `No se puede crear duplicado aunque el codigo sea diferente o este vacio. ` +
+          `Usa ACTUALIZAR con NOMBRE_REFERENCIA si quieres modificarlo. SKU existente: ${duplicateLabel}.`,
+      );
+    }
 
     if (operacion === "CREAR") {
       const [result] = await connection.query(
@@ -1899,7 +2168,7 @@ router.post(
     const connection = await pool.getConnection();
 
     try {
-      if (!req.file?.buffer) {
+      if (!req.file?.path) {
         return res
           .status(400)
           .json({
@@ -1908,7 +2177,8 @@ router.post(
           });
       }
 
-      const workbook = await readWorkbookFromBuffer(req.file.buffer);
+      const buffer = fs.readFileSync(req.file.path);
+      const workbook = await readWorkbookFromBuffer(buffer);
       await connection.beginTransaction();
       const resumen = await importSkusFromWorkbook(connection, req, workbook);
       await connection.commit();
@@ -1942,7 +2212,7 @@ router.post(
     const connection = await pool.getConnection();
 
     try {
-      if (!req.file?.buffer) {
+      if (!req.file?.path) {
         return res
           .status(400)
           .json({
@@ -1958,7 +2228,8 @@ router.post(
           .json({ ok: false, mensaje: "Empresa requerida" });
       }
 
-      const workbook = await readWorkbookFromBuffer(req.file.buffer);
+      const buffer = fs.readFileSync(req.file.path);
+      const workbook = await readWorkbookFromBuffer(buffer);
       if (!workbook.getWorksheet("Carga_Lotes")) {
         return res
           .status(400)
@@ -2005,7 +2276,7 @@ router.post(
   async (req, res) => {
     const connection = await pool.getConnection();
     try {
-      if (!req.file?.buffer) {
+      if (!req.file?.path) {
         return res
           .status(400)
           .json({
@@ -2021,7 +2292,8 @@ router.post(
           .json({ ok: false, mensaje: "Empresa requerida" });
       }
 
-      const workbook = await readWorkbookFromBuffer(req.file.buffer);
+      const buffer = fs.readFileSync(req.file.path);
+      const workbook = await readWorkbookFromBuffer(buffer);
 
       // Buscar hoja Carga_Lotes o la primera hoja
       const worksheet =

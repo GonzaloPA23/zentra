@@ -43,6 +43,12 @@ const NAV = [
     roles: ["superadmin", "admin", "supervisor", "almacenero"],
   },
   {
+    label: "TG INTERNO",
+    to: "/tg-interno/listado",
+    icon: Package,
+    roles: ["superadmin", "admin", "almacenero"],
+  },
+  {
     label: "Historial",
     to: "/historial",
     icon: Bell,

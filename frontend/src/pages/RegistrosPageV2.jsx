@@ -167,11 +167,13 @@ function StockInicialModal({ open, onClose, onSaved }) {
     error: lotesQueryError,
   } = useQuery({
     queryKey: ["stock-inicial-lotes", skuId || ""],
-    queryFn: () =>
-      api
-        .get(`/catalogos/lotes?sku_id=${skuId}`)
-        .then((response) => response.data.datos),
-    enabled: open && !!skuId && skuManejaLote,
+    queryFn: () => {
+      const params = new URLSearchParams({ sku_id: skuId });
+      return api
+        .get(`/catalogos/lotes?${params.toString()}`)
+        .then((response) => response.data.datos);
+    },
+    enabled: open && !!skuId && !!almacenId && skuManejaLote,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
@@ -720,14 +722,10 @@ function RegistroRow({
               <button
                 type="button"
                 className="btn-icon text-blue-500"
-                title={row.estado === "aprobado" ? "Ver" : "Editar"}
+                title="Editar"
                 onClick={() => navigate(`/registros/${row.id}/editar`)}
               >
-                {row.estado === "aprobado" ? (
-                  <Eye size={14} />
-                ) : (
-                  <Pencil size={14} />
-                )}
+                <Pencil size={14} />
               </button>
             )}
             {canDelete && (
@@ -1085,10 +1083,7 @@ export default function RegistrosPageV2() {
                     )
                   }
                   canEdit={canEdit}
-                  canDelete={
-                    canDelete &&
-                    (row.estado !== "aprobado" || hasRole("superadmin"))
-                  }
+                  canDelete={canDelete}
                   onDelete={setDeleting}
                   onDownloadDetail={handleDownloadDetail}
                 />
@@ -1175,7 +1170,11 @@ export default function RegistrosPageV2() {
         onConfirm={() => deleteMutation.mutate(deleting?.id)}
         loading={deleteMutation.isPending}
         title="Eliminar registro"
-        message={`¿Eliminar el registro "${deleting?.nro_guia || deleting?.sku_resumen || ""}"? Esta acción no se puede deshacer.`}
+        message={
+          deleting?.estado === "aprobado"
+            ? `¿Eliminar logicamente el registro aprobado "${deleting?.nro_guia || deleting?.sku_resumen || ""}"? Se reversara su impacto en stock y quedara respaldo de auditoria.`
+            : `¿Eliminar logicamente el registro "${deleting?.nro_guia || deleting?.sku_resumen || ""}"? Quedara respaldo de auditoria.`
+        }
       />
     </div>
   );

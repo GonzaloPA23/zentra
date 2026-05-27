@@ -3,6 +3,7 @@ import { toast } from 'react-toastify';
 import { AlertCircle, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import api, { getMensajeError } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import DataTable from '../components/DataTable';
 
 function ConfiguracionNotificacionesPage() {
   const { usuario } = useAuth();
@@ -71,6 +72,43 @@ function ConfiguracionNotificacionesPage() {
     (tipo) => !tiposConfigurados.has(Number(tipo.id)),
   );
   const isMutating = addMutacion.isPending || addAllMutacion.isPending || eliminarMutacion.isPending;
+  const booleanColumn = (field) => ({
+    filterValue: (row) => (row[field] ? 'Si' : 'No'),
+    sortValue: (row) => (row[field] ? 'Si' : 'No'),
+    render: (row) => (
+      <div className="flex justify-center">
+        {row[field] ? (
+          <CheckCircle size={20} className="text-green-500" />
+        ) : (
+          <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
+        )}
+      </div>
+    ),
+  });
+  const configColumns = [
+    { header: 'Categoria', accessor: 'categoria_nombre', render: (row) => <span className="font-medium">{row.categoria_nombre || '-'}</span> },
+    { header: 'Tipo de Mercaderia', accessor: 'tipo_mercaderia_nombre', render: (row) => row.tipo_mercaderia_nombre || '-' },
+    { header: 'Excluir de Stock Critico', ...booleanColumn('excluir_de_stock_critico') },
+    { header: 'Excluir de Stock Bajo', ...booleanColumn('excluir_de_stock_bajo') },
+    { header: 'Excluir de Vencimientos', ...booleanColumn('excluir_de_vencimientos') },
+    {
+      header: 'Acciones',
+      width: 90,
+      filterable: false,
+      sortable: false,
+      render: (row) => (
+        <button
+          type="button"
+          className="btn-icon text-red-500 hover:bg-red-50"
+          onClick={() => eliminarMutacion.mutate(row.id)}
+          disabled={isMutating}
+          title="Eliminar"
+        >
+          <Trash2 size={18} />
+        </button>
+      ),
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
@@ -88,66 +126,13 @@ function ConfiguracionNotificacionesPage() {
           <h2 className="mb-4 text-xl font-semibold text-gray-900">
             Exclusiones Configuradas
           </h2>
-          <div className="overflow-x-auto">
-            <table className="table w-full">
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Tipo de Mercaderia</th>
-                  <th>Excluir de Stock Critico</th>
-                  <th>Excluir de Stock Bajo</th>
-                  <th>Excluir de Vencimientos</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {config.map((item) => (
-                  <tr key={item.id}>
-                    <td className="font-medium">{item.categoria_nombre || '-'}</td>
-                    <td>{item.tipo_mercaderia_nombre || '-'}</td>
-                    <td>
-                      <div className="flex justify-center">
-                        {item.excluir_de_stock_critico ? (
-                          <CheckCircle size={20} className="text-green-500" />
-                        ) : (
-                          <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex justify-center">
-                        {item.excluir_de_stock_bajo ? (
-                          <CheckCircle size={20} className="text-green-500" />
-                        ) : (
-                          <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex justify-center">
-                        {item.excluir_de_vencimientos ? (
-                          <CheckCircle size={20} className="text-green-500" />
-                        ) : (
-                          <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn-icon text-red-500 hover:bg-red-50"
-                        onClick={() => eliminarMutacion.mutate(item.id)}
-                        disabled={isMutating}
-                        title="Eliminar"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={configColumns}
+            data={config}
+            loading={isLoading}
+            searchPlaceholder="Buscar exclusiones..."
+            rowKey="id"
+          />
         </div>
       )}
 

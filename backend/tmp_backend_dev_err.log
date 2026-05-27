@@ -1,0 +1,312 @@
+Error: Stock insuficiente para CARAMELO FULL MASTICRUNCH LIMON 13.5GR (L150327) en ALMACEN AYACUCHO. Disponible: 203, salida solicitada: 206
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1096:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1804:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4464:25
+Error: El stock final no puede quedar negativo
+    at upsertStock (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1015:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async applyStockMovementBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1146:7)
+    at async applyApprovalStock (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1343:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4524:9
+Error: Stock insuficiente para CARAMELO FULL MASTICRUNCH LIMON 13.5GR (L150327) en ALMACEN AYACUCHO. Disponible: 203, salida solicitada: 204
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1096:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1804:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4464:25
+Error: El stock final no puede quedar negativo
+    at upsertStock (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1015:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async applyStockMovementBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1146:7)
+    at async applyApprovalStock (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1343:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4524:9
+Error: Stock insuficiente para CARAMELO FULL MASTICRUNCH LIMON 13.5GR (L150327) en ALMACEN AYACUCHO. Disponible: 203, salida solicitada: 400
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1835:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4495:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 7
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1835:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4495:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 7
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1835:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4495:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 5
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1835:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4495:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 3
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1854:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4517:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 3
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1854:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4517:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 2
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1854:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4517:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 500
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async applyStockMovementBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1170:3)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4791:13
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 495
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 495
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 4
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 5
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 2
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 0, salida solicitada: 3
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 31, salida solicitada: 32
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para PLATO MIMASKOT PERRO (ANARANJADO) (SIN LOTE) en ALMACEN TRES REGIONES. Disponible: 31, salida solicitada: 444
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Stock insuficiente para CHUPETIN COLORADO SURTI 16X24X17 GR (L061027) en ALMACEN AYACUCHO. Disponible: 403, salida solicitada: 7800
+    at ensureStockAvailabilityForBatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1127:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async validateRegistroPayloadV2 (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:1891:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4564:25
+Error: Cantidad invalida en la fila 8
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2235:32)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: Cantidad invalida en la fila 8
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2235:32)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: No se encontro SKUs "AVENAS CLASICAS 3 OSITOS 2V 24X110GR" en la fila 10.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:283:11)
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2293:7)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: No se encontro SKUs "AVENAS CLASICAS 3 OSITOS 2V 24X110GR" en la fila 10.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:283:11)
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2293:7)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: No se encontro SKUs "AVENAS CLASICAS 3 OSITOS 2V 24X110GR" en la fila 10.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:283:11)
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2293:7)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: No se encontro SKUs "MERMELADA FANNY 950GR" en la fila 17.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:283:11)
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2293:7)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: Cantidad invalida en la fila 18
+    at validateStockInitializationPayload (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:2235:32)
+    at importStockInitialFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\registros.js:3019:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\registros.js:4262:23
+Error: No se encontro tipos de mercaderia "CANJE" en la fila 2.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro la categoria "WAFER NIK" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveCategoriaFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:307:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1295:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro la categoria "WAFER NIK" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveCategoriaFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:307:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1295:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro la categoria "WAFER NIK" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveCategoriaFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:307:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1295:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro tipos de mercaderia "ACTIVOS" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro tipos de mercaderia "ACTIVOS" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro tipos de mercaderia "ACTIVOS" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: No se encontro tipos de mercaderia "ACTIVOS" en la fila 67.
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:263:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: Hay varios tipos de mercaderia llamados "MERCADERISMO" en la fila 109. Usa el nombre exacto de la hoja de referencia. Ejemplos: MERCADERISMO / CONFITES | MERCADERISMO / CONFITES
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:274:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: Hay varios tipos de mercaderia llamados "MERCADERISMO" en la fila 109. Usa el nombre exacto de la hoja de referencia. Ejemplos: MERCADERISMO / CONFITES | MERCADERISMO / CONFITES
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:274:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: Hay varios tipos de mercaderia llamados "MERCADERISMO" en la fila 109. Usa el nombre exacto de la hoja de referencia. Ejemplos: MERCADERISMO / CONFITES | MERCADERISMO / CONFITES
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:274:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: Hay varios tipos de mercaderia llamados "MERCADERISMO" en la fila 109. Usa el nombre exacto de la hoja de referencia. Ejemplos: MERCADERISMO / CONFITES | MERCADERISMO / CONFITES
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:274:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+Error: Hay varios tipos de mercaderia llamados "MERCADERISMO" en la fila 109. Usa el nombre exacto de la hoja de referencia. Ejemplos: MERCADERISMO / CONFITES | MERCADERISMO / CONFITES
+    at resolveSingleSheetMatch (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:274:11)
+    at resolveTipoFromSheetRow (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:368:12)
+    at importSkusFromWorkbook (C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:1302:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\zentra_almacenes\zentra\backend\src\routes\catalogos.js:2135:23
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (C:\zentra_almacenes\zentra\backend\node_modules\express\lib\application.js:635:24)
+    at C:\zentra_almacenes\zentra\backend\src\server.js:62:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.13.1
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (C:\zentra_almacenes\zentra\backend\node_modules\express\lib\application.js:635:24)
+    at C:\zentra_almacenes\zentra\backend\src\server.js:62:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.13.1
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (C:\zentra_almacenes\zentra\backend\node_modules\express\lib\application.js:635:24)
+    at C:\zentra_almacenes\zentra\backend\src\server.js:62:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.13.1
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (C:\zentra_almacenes\zentra\backend\node_modules\express\lib\application.js:635:24)
+    at C:\zentra_almacenes\zentra\backend\src\server.js:62:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.13.1
