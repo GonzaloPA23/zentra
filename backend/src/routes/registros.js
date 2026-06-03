@@ -114,6 +114,7 @@ function getZonaExpr(cityAlias = "ci") {
 }
 
 const REGISTRO_SORT_FIELDS = {
+  zona: getZonaExpr(),
   fecha: "r.fecha",
   almacen_origen: "ao.nombre",
   almacen_destino: "ad.nombre",
@@ -614,6 +615,7 @@ async function buildRegistroQuery(req, executor = pool) {
     estado,
     q_almacen_origen,
     q_almacen_destino,
+    q_zona,
     q_categoria,
     q_tipo_accion,
     q_sku,
@@ -668,6 +670,7 @@ async function buildRegistroQuery(req, executor = pool) {
 
   where = addLikeFilter(where, params, q_almacen_origen, "ao.nombre");
   where = addLikeFilter(where, params, q_almacen_destino, "ad.nombre");
+  where = addLikeFilter(where, params, q_zona, getZonaExpr());
   where = addLikeFilter(where, params, q_categoria, "ca.nombre");
   where = addLikeFilter(where, params, q_tipo_accion, "r.tipo_accion");
   where = addLikeFilter(where, params, q_estado, "r.estado");

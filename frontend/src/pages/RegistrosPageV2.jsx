@@ -47,6 +47,7 @@ const EMPTY_FILTERS = {
   fecha_fin: "",
   q_almacen_origen: "",
   q_almacen_destino: "",
+  q_zona: "",
   q_categoria: "",
   q_tipo_accion: "",
   q_sku: "",
@@ -548,7 +549,7 @@ function StockInicialModal({ open, onClose, onSaved }) {
 function DetalleExpandido({ row }) {
   return (
     <tr className="bg-blue-50/40">
-      <td colSpan={11} className="px-4 py-4">
+      <td colSpan={12} className="px-4 py-4">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
             <div>
@@ -679,6 +680,9 @@ function RegistroRow({
     <>
       <tr className="cursor-pointer" onClick={() => onToggle(row.id)}>
         <td className="font-semibold text-gray-900">{row.id}</td>
+        <td>
+          <span className="badge-gray badge">{row.zona || "-"}</span>
+        </td>
         <td className="whitespace-nowrap">{formatSafeDate(row.fecha)}</td>
         <td className="max-w-[180px] truncate" title={row.almacen_origen || ""}>
           {row.almacen_origen || "-"}
@@ -970,6 +974,19 @@ export default function RegistrosPageV2() {
             <tr>
               <SortableFilterHeader label="ID" filterType="none" />
               <SortableFilterHeader
+                label="Zona"
+                sortKey="zona"
+                sortConfig={sortConfig}
+                onSort={handleSort}
+                filterValue={filters.q_zona}
+                onFilterChange={(value) => updateFilter("q_zona", value)}
+                placeholder="Todas"
+                options={[
+                  { value: "LIMA", label: "LIMA" },
+                  { value: "PROVINCIA", label: "PROVINCIA" },
+                ]}
+              />
+              <SortableFilterHeader
                 label="Fecha"
                 sortKey="fecha"
                 sortConfig={sortConfig}
@@ -1058,7 +1075,7 @@ export default function RegistrosPageV2() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={11} className="py-12 text-center text-gray-400">
+                <td colSpan={12} className="py-12 text-center text-gray-400">
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-400 border-t-transparent" />
                     Cargando registros...
@@ -1067,7 +1084,7 @@ export default function RegistrosPageV2() {
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="py-12 text-center text-gray-400">
+                <td colSpan={12} className="py-12 text-center text-gray-400">
                   No hay registros para mostrar.
                 </td>
               </tr>
