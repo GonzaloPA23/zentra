@@ -1,0 +1,7 @@
+[DB] Conexión MySQL exitosa
+
+🚀 ZENTRA API corriendo en http://localhost:4000
+   Entorno: production
+   Health:  http://localhost:4000/health
+
+::1 - - [03/Jun/2026:00:27:04 +0000] "GET /health HTTP/1.1" 200 68 "-" "Mozilla/5.0 (Windows NT; Windows NT 10.0; es-PE) WindowsPowerShell/5.1.26100.8457"
