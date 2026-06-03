@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, ArrowLeft, Edit, Trash2 } from "lucide-react";
+import { Plus, Download, ArrowLeft, Edit, Image, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../utils/api";
 import DataTable from "../components/DataTable";
@@ -66,6 +66,23 @@ export default function TGInternoListadoPage() {
       ),
     },
     { header: "Usuario", accessor: "usuario_nombre", render: (row) => row.usuario_nombre || "N/A" },
+    {
+      header: "Imagen",
+      value: (row) => row.foto_transferencia || "",
+      sortable: false,
+      filterable: false,
+      render: (row) => row.foto_transferencia ? (
+        <a
+          href={`/uploads/${row.foto_transferencia}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Image size={14} /> Ver
+        </a>
+      ) : "-",
+    },
     {
       header: "Fecha",
       accessor: "created_at",

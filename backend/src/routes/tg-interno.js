@@ -1,10 +1,40 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 const { authMiddleware, empresaMiddleware, requireRol } = require("../middleware/auth");
 const { pool } = require("../db");
 const { sendExcelWorkbook } = require("../utils/excel");
 
 const router = express.Router();
 const STOCK_EPSILON = 0.000001;
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = process.env.UPLOAD_PATH || "./uploads";
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, unique + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: parseInt(process.env.MAX_FILE_SIZE || "", 10) || 5 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|pdf/;
+    if (allowed.test(path.extname(file.originalname).toLowerCase())) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Solo se permiten JPG, PNG o PDF"));
+  },
+});
 
 // Aplicar middlewares globales
 router.use(authMiddleware);
@@ -27,6 +57,51 @@ function parsePositiveIntegerQuantity(value) {
 
 function parseBooleanFlag(value) {
   return value === true || value === 1 || value === "1";
+}
+
+function parseJsonArrayField(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function trimTrailingSlash(value = "") {
+  return String(value).replace(/\/+$/, "");
+}
+
+function resolvePublicAppBaseUrl(req) {
+  const protocol = String(
+    req?.headers?.["x-forwarded-proto"] || req?.protocol || "http",
+  )
+    .split(",")[0]
+    .trim();
+  const host = String(req?.headers?.["x-forwarded-host"] || req?.get?.("host") || "").trim();
+  if (host) return `${protocol}://${host}`;
+
+  const configuredBaseUrl = String(process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || "").trim();
+  return configuredBaseUrl ? trimTrailingSlash(configuredBaseUrl) : null;
+}
+
+function buildPublicFileUrl(req, fileName) {
+  if (!req || !fileName) return null;
+  const baseUrl = resolvePublicAppBaseUrl(req);
+  if (!baseUrl) return null;
+  return `${baseUrl}/uploads/${encodeURIComponent(fileName)}`;
+}
+
+function buildFotoTransferenciaCellValue(req, fileName) {
+  const url = buildPublicFileUrl(req, fileName);
+  if (!url) return "";
+  return {
+    text: url,
+    hyperlink: url,
+    tooltip: url,
+  };
 }
 
 function normalizeSkuName(value) {
@@ -73,7 +148,7 @@ async function ensureTgInternoColumns(executor) {
      FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'tg_interno_transferencias'
-       AND COLUMN_NAME IN ('sku_origen_id','lote_origen_id')`,
+       AND COLUMN_NAME IN ('sku_origen_id','lote_origen_id','foto_transferencia')`,
   );
   const existing = new Set(columns.map((column) => column.COLUMN_NAME));
 
@@ -85,6 +160,11 @@ async function ensureTgInternoColumns(executor) {
   if (!existing.has("lote_origen_id")) {
     await executor.query(
       "ALTER TABLE `tg_interno_transferencias` ADD COLUMN `lote_origen_id` int(10) UNSIGNED DEFAULT NULL AFTER `sku_origen_id`",
+    );
+  }
+  if (!existing.has("foto_transferencia")) {
+    await executor.query(
+      "ALTER TABLE `tg_interno_transferencias` ADD COLUMN `foto_transferencia` varchar(255) DEFAULT NULL AFTER `observaciones`",
     );
   }
 
@@ -361,6 +441,7 @@ router.get("/", async (req, res) => {
         t.cantidad_origen,
         t.usuario_id,
         t.observaciones,
+        t.foto_transferencia,
         t.activo,
         t.created_at,
         u.nombre as usuario_nombre,
@@ -401,6 +482,7 @@ router.get(["/export", "/export/xlsx"], async (req, res) => {
         lo.fecha_vencimiento as fecha_vencimiento_origen,
         t.cantidad_origen,
         t.observaciones,
+        t.foto_transferencia,
         CONCAT_WS(' ', u.nombre, u.apellido) as usuario,
         t.created_at,
         t.activo,
@@ -448,6 +530,7 @@ router.get(["/export", "/export/xlsx"], async (req, res) => {
         { header: "ESTADO", key: "estado", width: 12 },
         { header: "USUARIO", key: "usuario", width: 24 },
         { header: "OBSERVACIONES", key: "observaciones", width: 36 },
+        { header: "IMAGEN TRANSFERENCIA", key: "foto_transferencia", width: 64, type: "link" },
       ],
       rows: transferencias.map((row) => ({
         id: Number(row.id || 0),
@@ -468,6 +551,7 @@ router.get(["/export", "/export/xlsx"], async (req, res) => {
         estado: row.activo ? "ACTIVO" : "ANULADO",
         usuario: row.usuario || "",
         observaciones: row.observaciones || "",
+        foto_transferencia: buildFotoTransferenciaCellValue(req, row.foto_transferencia),
       })),
     });
 
@@ -536,7 +620,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST - Crear nueva transferencia
-router.post("/", async (req, res) => {
+router.post("/", upload.single("foto_transferencia"), async (req, res) => {
   const {
     almacen_id,
     categoria_origen_id,
@@ -544,12 +628,16 @@ router.post("/", async (req, res) => {
     lote_origen_id,
     cantidad_origen,
     observaciones,
-    detalles,
   } = req.body;
+  const detalles = parseJsonArrayField(req.body.detalles);
 
   // Validaciones
   if (!almacen_id || !categoria_origen_id || !sku_origen_id || !cantidad_origen) {
     return res.status(400).json({ mensaje: "Faltan datos requeridos" });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ mensaje: "La imagen de la transferencia es obligatoria" });
   }
 
   if (!Array.isArray(detalles) || detalles.length < 1) {
@@ -668,8 +756,8 @@ router.post("/", async (req, res) => {
       // Crear transferencia
       const [result] = await connection.query(
         `INSERT INTO tg_interno_transferencias 
-        (empresa_id, almacen_id, categoria_origen_id, sku_origen_id, lote_origen_id, cantidad_origen, usuario_id, observaciones, activo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        (empresa_id, almacen_id, categoria_origen_id, sku_origen_id, lote_origen_id, cantidad_origen, usuario_id, observaciones, foto_transferencia, activo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [
           req.empresa_id,
           almacenId,
@@ -679,6 +767,7 @@ router.post("/", async (req, res) => {
           cantidadOrigenNumber,
           req.usuario.id,
           observaciones || null,
+          req.file.filename,
         ]
       );
 
@@ -779,8 +868,9 @@ router.post("/", async (req, res) => {
 });
 
 // PUT - Editar montos de una transferencia activa
-router.put("/:id", requireRol("superadmin", "admin"), async (req, res) => {
-  const { cantidad_origen, observaciones, detalles } = req.body;
+router.put("/:id", requireRol("superadmin", "admin"), upload.single("foto_transferencia"), async (req, res) => {
+  const { cantidad_origen, observaciones } = req.body;
+  const detalles = parseJsonArrayField(req.body.detalles);
 
   if (!parsePositiveIntegerQuantity(cantidad_origen)) {
     return res.status(400).json({ mensaje: "La cantidad a trasladar debe ser un entero mayor a 0" });
@@ -874,9 +964,9 @@ router.put("/:id", requireRol("superadmin", "admin"), async (req, res) => {
 
     await connection.query(
       `UPDATE tg_interno_transferencias
-       SET cantidad_origen=?, observaciones=?, updated_at=CURRENT_TIMESTAMP
+       SET cantidad_origen=?, observaciones=?, foto_transferencia=COALESCE(?, foto_transferencia), updated_at=CURRENT_TIMESTAMP
        WHERE id=?`,
-      [cantidadOrigenNumber, observaciones || null, req.params.id],
+      [cantidadOrigenNumber, observaciones || null, req.file?.filename || null, req.params.id],
     );
 
     for (const detalle of detalles) {

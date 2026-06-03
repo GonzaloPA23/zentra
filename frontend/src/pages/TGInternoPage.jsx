@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFieldArray, useForm } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "react-toastify";
-import { AlertCircle, ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Image, Plus, Save, Trash2, Upload } from "lucide-react";
 import api from "../utils/api";
 import SearchableSelect from "../components/SearchableSelect";
 
@@ -55,6 +55,8 @@ export default function TGInternoPage() {
   const { id } = useParams();
   const isEditing = Boolean(id);
   const [saving, setSaving] = useState(false);
+  const [fotoFile, setFotoFile] = useState(null);
+  const [fotoActual, setFotoActual] = useState("");
 
   const { data: almacenes = [] } = useQuery({
     queryKey: ["almacenes"],
@@ -148,6 +150,8 @@ export default function TGInternoPage() {
         cantidad: String(Number(detalle.cantidad || 0)),
       })),
     });
+    setFotoActual(transferenciaEdit.foto_transferencia || "");
+    setFotoFile(null);
   }, [reset, transferenciaEdit]);
 
   const selectedStock = useMemo(() => {
@@ -271,6 +275,7 @@ export default function TGInternoPage() {
     if (!data.almacen_id) return toast.error("Selecciona un almacen");
     if (!data.categoria_origen_id) return toast.error("Selecciona categoria origen");
     if (!data.sku_origen_id) return toast.error("Selecciona el SKU origen con stock");
+    if (!isEditing && !fotoFile) return toast.error("La imagen de la transferencia es obligatoria");
     if (!isPositiveInteger(data.cantidad_origen)) {
       return toast.error("Ingresa una cantidad entera mayor a 0");
     }
@@ -320,18 +325,27 @@ export default function TGInternoPage() {
           cantidad: detalle.cantidad,
         })),
       };
+      const formData = new FormData();
 
       if (isEditing) {
-        await api.put(`/tg-interno/${id}`, {
-          cantidad_origen: payload.cantidad_origen,
-          observaciones: payload.observaciones,
-          detalles: payload.detalles.map((detalle) => ({
+        formData.append("cantidad_origen", payload.cantidad_origen);
+        formData.append("observaciones", payload.observaciones || "");
+        formData.append("detalles", JSON.stringify(payload.detalles.map((detalle) => ({
             id: detalle.id,
             cantidad: detalle.cantidad,
-          })),
+          }))));
+        if (fotoFile) formData.append("foto_transferencia", fotoFile);
+        await api.put(`/tg-interno/${id}`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
         });
       } else {
-        await api.post("/tg-interno", payload);
+        Object.entries(payload).forEach(([key, value]) => {
+          formData.append(key, key === "detalles" ? JSON.stringify(value) : value ?? "");
+        });
+        formData.append("foto_transferencia", fotoFile);
+        await api.post("/tg-interno", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
       }
 
       toast.success(isEditing ? "Transferencia TG INTERNO actualizada exitosamente" : "Transferencia TG INTERNO registrada exitosamente");
@@ -465,6 +479,41 @@ export default function TGInternoPage() {
                 placeholder="Motivo del traslado (opcional)"
                 {...control.register("observaciones")}
               />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="label">
+                Imagen de transferencia {!isEditing && <span className="text-red-500">*</span>}
+              </label>
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3 transition hover:border-blue-400 hover:bg-blue-50">
+                <div className="flex items-center gap-3 text-sm text-gray-700">
+                  <Upload size={18} className="text-blue-600" />
+                  <span>
+                    {fotoFile
+                      ? fotoFile.name
+                      : fotoActual
+                        ? "Imagen actual guardada. Selecciona otra para reemplazarla."
+                        : "Selecciona JPG, PNG o PDF"}
+                  </span>
+                </div>
+                <span className="btn-secondary btn-sm">Elegir archivo</span>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.pdf"
+                  className="hidden"
+                  onChange={(event) => setFotoFile(event.target.files?.[0] || null)}
+                />
+              </label>
+              {fotoActual && !fotoFile && (
+                <a
+                  href={`/uploads/${fotoActual}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                >
+                  <Image size={14} /> Ver imagen actual
+                </a>
+              )}
             </div>
           </div>
         </div>

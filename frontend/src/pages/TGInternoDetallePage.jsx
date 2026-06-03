@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Printer, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, Printer, Edit, Image, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
@@ -180,6 +180,20 @@ export default function TGInternoDetallePage() {
             <div className="md:col-span-2">
               <p className="text-sm font-medium text-gray-600">Observaciones</p>
               <p className="text-gray-900">{transferencia.observaciones}</p>
+            </div>
+          )}
+
+          {transferencia.foto_transferencia && (
+            <div className="md:col-span-2">
+              <p className="text-sm font-medium text-gray-600">Imagen de transferencia</p>
+              <a
+                href={`/uploads/${transferencia.foto_transferencia}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex items-center gap-2 font-medium text-blue-600 hover:text-blue-800"
+              >
+                <Image size={16} /> Ver imagen adjunta
+              </a>
             </div>
           )}
         </div>
