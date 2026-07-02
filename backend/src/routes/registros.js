@@ -1737,6 +1737,7 @@ async function validateRegistroPayloadV2(
     currentFotoGuia = null,
     previousOriginRequirements = new Map(),
     skipStockAvailability = false,
+    empresaId = req.empresa_id,
   } = {},
 ) {
   if (!isValidDateInput(payload.fecha)) {
@@ -2047,7 +2048,7 @@ async function validateRegistroPayloadV2(
     await ensureStockAvailabilityForBatch(
       executor,
       {
-        empresa_id: req.empresa_id,
+        empresa_id: empresaId,
         almacen_origen_id: almacenOrigenId,
         almacen_origen:
           warehouseMap.get(almacenOrigenId)?.nombre ||
@@ -2081,12 +2082,14 @@ async function validateRegistroPayload(
     currentFotoGuia = null,
     previousOriginRequirements = new Map(),
     skipStockAvailability = false,
+    empresaId = req.empresa_id,
   } = {},
 ) {
   return validateRegistroPayloadV2(executor, req, payload, {
     currentFotoGuia,
     previousOriginRequirements,
     skipStockAvailability,
+    empresaId,
   });
   if (!isValidDateInput(payload.fecha)) {
     throw new Error("Fecha inválida");
@@ -4735,6 +4738,7 @@ router.put(
         {
           currentFotoGuia: existing.foto_guia || null,
           previousOriginRequirements,
+          empresaId: existing.empresa_id || req.empresa_id,
         },
       );
 
@@ -4884,7 +4888,10 @@ router.patch(
         connection,
         req,
         payload,
-        { currentFotoGuia: existing.foto_guia || null },
+        {
+          currentFotoGuia: existing.foto_guia || null,
+          empresaId: existing.empresa_id || req.empresa_id,
+        },
       );
       const headerValues = buildHeaderValues(validated, validated.detalles);
 
