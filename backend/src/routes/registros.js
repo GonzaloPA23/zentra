@@ -1295,6 +1295,125 @@ async function getRegistroStockMovements(executor, registroId) {
   return movimientos;
 }
 
+function getStockDeltaKey({ empresa_id, almacen_id, sku_id, lote_id }) {
+  const normalizedLoteId = parsePositiveInt(lote_id) || "sin-lote";
+  return `${empresa_id}|${almacen_id}|${sku_id}|${normalizedLoteId}`;
+}
+
+function addStockDelta(deltaMap, delta) {
+  if (!delta.empresa_id || !delta.almacen_id || !delta.sku_id || !delta.cantidad) return;
+
+  const key = getStockDeltaKey(delta);
+  const current = deltaMap.get(key) || {
+    empresa_id: delta.empresa_id,
+    almacen_id: delta.almacen_id,
+    sku_id: delta.sku_id,
+    lote_id: parsePositiveInt(delta.lote_id) || null,
+    cantidad: 0,
+  };
+
+  current.cantidad += Number(delta.cantidad || 0);
+  deltaMap.set(key, current);
+}
+
+function addMovementStockDeltas(deltaMap, movement, multiplier = 1) {
+  const effects = getMovementEffects(movement.tipo_movimiento);
+  const cantidad = Number(movement.cantidad || 0) * multiplier;
+
+  if (effects.originDelta && movement.almacen_origen_id) {
+    addStockDelta(deltaMap, {
+      empresa_id: movement.empresa_id,
+      almacen_id: movement.almacen_origen_id,
+      sku_id: movement.sku_id,
+      lote_id: movement.lote_id,
+      cantidad: cantidad * effects.originDelta,
+    });
+  }
+
+  if (effects.destinationDelta && movement.almacen_destino_id) {
+    addStockDelta(deltaMap, {
+      empresa_id: movement.empresa_id,
+      almacen_id: movement.almacen_destino_id,
+      sku_id: movement.sku_id,
+      lote_id: movement.lote_id,
+      cantidad: cantidad * effects.destinationDelta,
+    });
+  }
+}
+
+function buildApprovalStockMovements(registro, usuarioId) {
+  const detalles = Array.isArray(registro.detalles) ? registro.detalles : [];
+  const movements = [];
+  const isMolitaliaEntry = isTgMolitaliaIndicator(
+    registro.indicador_nombre || registro.indicador || "",
+  );
+
+  for (const detail of detalles) {
+    const cantidad = Number(detail.cantidad || 0);
+    if (!cantidad) continue;
+
+    if (!isMolitaliaEntry) {
+      movements.push({
+        empresa_id: registro.empresa_id,
+        registro_id: registro.id,
+        registro_detalle_id: detail.id || null,
+        almacen_origen_id: registro.almacen_origen_id,
+        almacen_destino_id: registro.almacen_destino_id,
+        sku_id: detail.sku_id,
+        lote_id: detail.lote_id,
+        cantidad,
+        tipo_movimiento: "SALIDA_TRANSITO",
+        usuario_id: usuarioId || registro.aprobado_por || registro.usuario_id,
+      });
+    }
+
+    if (shouldApplyApprovedDestinationStock(registro)) {
+      movements.push({
+        empresa_id: registro.empresa_id,
+        registro_id: registro.id,
+        registro_detalle_id: detail.id || null,
+        almacen_origen_id: registro.almacen_origen_id,
+        almacen_destino_id: registro.almacen_destino_id,
+        sku_id: detail.sku_id,
+        lote_id: detail.lote_id,
+        cantidad,
+        tipo_movimiento: "INGRESO_APROBADO",
+        usuario_id: usuarioId || registro.aprobado_por || registro.usuario_id,
+      });
+    }
+  }
+
+  return movements;
+}
+
+async function replaceApprovalStockWithNetDeltas(
+  executor,
+  registro,
+  previousMovements,
+  usuarioId,
+) {
+  const nextMovements = buildApprovalStockMovements(registro, usuarioId);
+  const deltaMap = new Map();
+
+  previousMovements.forEach((movement) => addMovementStockDeltas(deltaMap, movement, -1));
+  nextMovements.forEach((movement) => addMovementStockDeltas(deltaMap, movement, 1));
+
+  for (const delta of deltaMap.values()) {
+    if (Math.abs(Number(delta.cantidad || 0)) <= STOCK_EPSILON) continue;
+    await upsertStock(executor, delta);
+  }
+
+  await executor.query("DELETE FROM stock_movimientos WHERE registro_id=?", [
+    registro.id,
+  ]);
+
+  for (const movement of nextMovements) {
+    await insertStockMovement(executor, movement);
+  }
+
+  return nextMovements;
+}
+
 function buildPreviousOriginRequirements(movements = []) {
   const requiredByKey = new Map();
 
@@ -4602,7 +4721,6 @@ router.put(
       if (isApprovedEdit) {
         approvedMovementsBefore = await getRegistroStockMovements(connection, id);
         previousOriginRequirements = buildPreviousOriginRequirements(approvedMovementsBefore);
-        await reverseRecordedStockMovements(connection, id);
       } else {
         previousOriginRequirements = await buildPendingEditOriginRequirements(
           connection,
@@ -4670,9 +4788,12 @@ router.put(
       let approvedMovementsAfter = [];
 
       if (isApprovedEdit) {
-        await applyApprovalStock(connection, updatedRegistro, {
-          previousRequiredByKey: previousOriginRequirements,
-        });
+        await replaceApprovalStockWithNetDeltas(
+          connection,
+          updatedRegistro,
+          approvedMovementsBefore,
+          req.usuario.id,
+        );
         approvedMovementsAfter = await getRegistroStockMovements(connection, id);
         updatedRegistro = await getRegistroById(connection, req, id);
 
